@@ -168,7 +168,7 @@ body {
 .main {
     flex: 1;
     padding: 28px 34px;
-    max-width: 1180px;
+    max-width: 100%;
 }
 
 .page-header {
