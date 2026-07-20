@@ -373,12 +373,24 @@ class InventoryItemController
         }
 
         if (!is_dir($this->uploadDir)) {
-            mkdir($this->uploadDir, 0755, true);
+            if (!mkdir($this->uploadDir, 0755, true) && !is_dir($this->uploadDir)) {
+                $absolutePath = realpath(__DIR__ . '/../assets/uploads') ?: (__DIR__ . '/../assets/uploads');
+                return [$keepExisting, "The upload folder doesn't exist and couldn't be created automatically. "
+                    . "Create it manually at: {$absolutePath}/products"];
+            }
+        }
+
+        if (!is_writable($this->uploadDir)) {
+            $absolutePath = realpath($this->uploadDir) ?: $this->uploadDir;
+            return [$keepExisting, "The server can't write to the upload folder ({$absolutePath}). "
+                . "On XAMPP/macOS, run this in Terminal: chmod -R 775 \"{$absolutePath}\" "
+                . "— and make sure it's owned by the user Apache runs as (often _www)."];
         }
 
         $filename = uniqid('product_', true) . '.' . $extension;
         if (!move_uploaded_file($file['tmp_name'], $this->uploadDir . $filename)) {
-            return [$keepExisting, "Could not save the uploaded image. Check that assets/uploads/products/ is writable by the web server."];
+            $absolutePath = realpath($this->uploadDir) ?: $this->uploadDir;
+            return [$keepExisting, "Could not save the uploaded image to {$absolutePath}. Check its permissions and that PHP's temp upload folder is accessible."];
         }
 
         // Replacing an image on edit - clean up the old file

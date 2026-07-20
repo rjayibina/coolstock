@@ -16,6 +16,38 @@ class CategoryController
         $this->category = new Category();
     }
 
+    /** AJAX endpoint - creates a category from the inline "Add new category"
+     *  control in the Product form's category combobox, returns JSON */
+    public function quickCreate(): void
+    {
+        header('Content-Type: application/json');
+        $name = trim($_POST['category_name'] ?? '');
+
+        if ($name === '') {
+            http_response_code(422);
+            echo json_encode(['error' => 'Category name is required.']);
+            exit;
+        }
+
+        $existing = array_filter($this->category->readAll(), fn($c) => strcasecmp($c['category_name'], $name) === 0);
+        if (!empty($existing)) {
+            $match = array_values($existing)[0];
+            echo json_encode(['id' => (int) $match['category_id'], 'name' => $match['category_name']]);
+            exit;
+        }
+
+        $this->category->category_name = $name;
+        $this->category->category_description = '';
+
+        if ($this->category->create()) {
+            echo json_encode(['id' => $this->category->lastInsertId(), 'name' => $name]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Could not create the category.']);
+        }
+        exit;
+    }
+
     /** List all categories, each with its product count */
     public function index(): void
     {

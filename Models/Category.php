@@ -35,6 +35,12 @@ class Category
         return $stmt->execute();
     }
 
+    /** The auto-increment id of the row just inserted by create() */
+    public function lastInsertId(): int
+    {
+        return (int) $this->conn->lastInsertId();
+    }
+
     /** READ - get every category, most recent first */
     public function readAll(): array
     {
