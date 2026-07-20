@@ -37,10 +37,10 @@ require __DIR__ . '/../partials/header.php';
                        style="margin-bottom:18px;">
                 <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave empty to keep the current image.</div>
 
-                <label for="category_id">Category</label>
-                <select id="category_id" name="category_id" required
+                <label for="category_id">Category <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                <select id="category_id" name="category_id"
                         style="width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:8px;font-size:14px;margin-bottom:18px;font-family:inherit;color:var(--text-dark);">
-                    <option value="">Select a category...</option>
+                    <option value="">No category</option>
                     <?php foreach ($categories as $cat): ?>
                         <option value="<?= $cat['category_id'] ?>" <?= ($data['category_id'] == $cat['category_id']) ? 'selected' : '' ?>>
                             <?= htmlspecialchars($cat['category_name']) ?>

@@ -38,7 +38,11 @@ class InventoryItem
                      :quantity_on_hand, :minimum_stock_level, :serial_number, :image_path)";
 
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':category_id', $this->category_id, PDO::PARAM_INT);
+        if ($this->category_id === null) {
+            $stmt->bindValue(':category_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':category_id', $this->category_id, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':item_name', $this->item_name);
         $stmt->bindParam(':description', $this->description);
         $stmt->bindParam(':unit_of_measure', $this->unit_of_measure);
@@ -53,7 +57,7 @@ class InventoryItem
     /** READ - all items, joined with category name, most recent first.
      *  $categoryId / $stockStatus ('low'|'in_stock') / $hasSerial ('1'|'0') optionally filter the results.
      *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
-    public function readAll(?int $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null, ?int $limit = null, ?int $offset = null): array
+    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null, ?int $limit = null, ?int $offset = null): array
     {
         [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $hasSerial);
 
@@ -80,7 +84,7 @@ class InventoryItem
     }
 
     /** Count of items matching the same filters as readAll() - powers pagination */
-    public function countFiltered(?int $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null): int
+    public function countFiltered(?string $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null): int
     {
         [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $hasSerial);
         $query = "SELECT COUNT(*) AS total FROM {$this->table} i WHERE {$where}";
@@ -93,14 +97,16 @@ class InventoryItem
     }
 
     /** Shared WHERE-clause builder for readAll() and countFiltered() so the two never drift apart */
-    private function buildFilterClause(?int $categoryId, ?string $stockStatus, ?string $hasSerial): array
+    private function buildFilterClause(?string $categoryId, ?string $stockStatus, ?string $hasSerial): array
     {
         $where = "1=1";
         $params = [];
 
-        if ($categoryId) {
+        if ($categoryId === 'none') {
+            $where .= " AND i.category_id IS NULL";
+        } elseif ($categoryId !== null && $categoryId !== '') {
             $where .= " AND i.category_id = :category_id";
-            $params[':category_id'] = $categoryId;
+            $params[':category_id'] = (int) $categoryId;
         }
         if ($stockStatus === 'low') {
             $where .= " AND i.quantity_on_hand <= i.minimum_stock_level";
@@ -154,7 +160,11 @@ class InventoryItem
                   WHERE item_id = :item_id";
 
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':category_id', $this->category_id, PDO::PARAM_INT);
+        if ($this->category_id === null) {
+            $stmt->bindValue(':category_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':category_id', $this->category_id, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':item_name', $this->item_name);
         $stmt->bindParam(':description', $this->description);
         $stmt->bindParam(':unit_of_measure', $this->unit_of_measure);
@@ -174,6 +184,17 @@ class InventoryItem
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
+    }
+
+    /** Helper - check whether a product has transaction history attached
+     *  (prevents violating the FK constraint on transactions) */
+    public function hasTransactions(int $id): bool
+    {
+        $query = "SELECT COUNT(*) AS total FROM transactions WHERE item_id = :id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'] > 0;
     }
 
     /** Adds (or subtracts, with a negative delta) stock for an item. Used by Transaction. */
@@ -199,15 +220,22 @@ class InventoryItem
     }
 
     /** Bulk delete - returns the number of rows actually deleted */
-    public function bulkDelete(array $ids): int
+    /** Bulk delete - skips any product that has transaction history, returns [deleted, skipped] ids */
+    public function bulkDelete(array $ids): array
     {
-        if (empty($ids)) {
-            return 0;
+        $deleted = [];
+        $skipped = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($this->hasTransactions($id)) {
+                $skipped[] = $id;
+                continue;
+            }
+            if ($this->delete($id)) {
+                $deleted[] = $id;
+            }
         }
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->conn->prepare("DELETE FROM {$this->table} WHERE item_id IN ($placeholders)");
-        $stmt->execute(array_map('intval', $ids));
-        return $stmt->rowCount();
+        return ['deleted' => $deleted, 'skipped' => $skipped];
     }
 
     /** Bulk-reassign category for a set of products - returns the number of rows updated */

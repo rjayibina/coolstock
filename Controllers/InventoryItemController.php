@@ -52,7 +52,8 @@ class InventoryItemController
     /** Export the current filtered product list as a downloadable CSV */
     public function export(): void
     {
-        $categoryId = !empty($_GET['category_id']) ? (int) $_GET['category_id'] : null;
+        $categoryId = $_GET['category_id'] ?? null;
+        $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
         $hasSerial = $_GET['has_serial'] ?? null;
 
@@ -158,13 +159,22 @@ class InventoryItemController
         $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
 
         if (!empty($ids)) {
+            // Must capture image paths BEFORE deleting - the rows won't exist afterward
+            $imagesByIid = [];
             foreach ($this->item->readByIds($ids) as $existing) {
-                if (!empty($existing['image_path'])) {
-                    $this->deleteImageFile($existing['image_path']);
+                $imagesByIid[$existing['item_id']] = $existing['image_path'];
+            }
+
+            $result = $this->item->bulkDelete($ids);
+
+            foreach ($result['deleted'] as $deletedId) {
+                if (!empty($imagesByIid[$deletedId])) {
+                    $this->deleteImageFile($imagesByIid[$deletedId]);
                 }
             }
-            $deleted = $this->item->bulkDelete($ids);
-            header("Location: index.php?module=products&action=index&status=bulk_deleted&count=$deleted");
+
+            $status = !empty($result['skipped']) ? 'bulk_partial' : 'bulk_deleted';
+            header("Location: index.php?module=products&action=index&status=$status&count=" . count($result['deleted']) . "&skipped=" . count($result['skipped']));
             exit;
         }
 
@@ -194,6 +204,10 @@ class InventoryItemController
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
         if ($id > 0) {
+            if ($this->item->hasTransactions($id)) {
+                header("Location: index.php?module=products&action=index&status=has_transactions");
+                exit;
+            }
             $existing = $this->item->readOne($id);
             if ($existing && !empty($existing['image_path'])) {
                 $this->deleteImageFile($existing['image_path']);
@@ -263,13 +277,13 @@ class InventoryItemController
                 $skipped[] = "Row $rowNum: missing item_name.";
                 continue;
             }
-            if (!isset($categoryByName[$categoryName])) {
+            if ($categoryName !== '' && !isset($categoryByName[$categoryName])) {
                 $skipped[] = "Row $rowNum: category \"" . ($row[$col['category_name']] ?? '') . "\" not found.";
                 continue;
             }
 
             $this->item->item_id = null;
-            $this->item->category_id = $categoryByName[$categoryName];
+            $this->item->category_id = $categoryByName[$categoryName] ?? null;
             $this->item->item_name = $itemName;
             $this->item->description = trim($row[$col['description']] ?? '');
             $this->item->unit_of_measure = trim($row[$col['unit_of_measure']] ?? '');
@@ -294,9 +308,6 @@ class InventoryItemController
         if (trim($input['item_name'] ?? '') === '') {
             return "Product name is required.";
         }
-        if (empty($input['category_id'])) {
-            return "Please select a category.";
-        }
         if (!is_numeric($input['quantity_on_hand'] ?? '') || $input['quantity_on_hand'] < 0) {
             return "Quantity on hand must be a non-negative number.";
         }
@@ -309,7 +320,7 @@ class InventoryItemController
     /** Copies POST data onto an InventoryItem model instance */
     private function hydrate(InventoryItem $item, array $input): void
     {
-        $item->category_id = (int) $input['category_id'];
+        $item->category_id = !empty($input['category_id']) ? (int) $input['category_id'] : null;
         $item->item_name = trim($input['item_name']);
         $item->description = trim($input['description'] ?? '');
         $item->unit_of_measure = trim($input['unit_of_measure'] ?? '');

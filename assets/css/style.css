@@ -46,9 +46,9 @@ body {
     padding: 22px 14px;
 }
 
-.rail a:first-of-type {
+/* .rail a:first-of-type {
     display: none;
-}
+} */
 
 /* ---------- Panel (secondary "Inventory" nav) ---------- */
 .panel {
@@ -67,9 +67,9 @@ body {
     padding: 0 8px;
 }
 
-.panel .panel-item:nth-child(2) {
+/* .panel .panel-item:nth-child(2) {
     display: none;
-}
+} */
 
 .panel-item {
     display: flex;
@@ -361,6 +361,7 @@ tbody td {
 
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: #FAFAFD; }
+.product-row { cursor: pointer; }
 
 .cell-muted { color: var(--text-muted); }
 .cell-id { color: var(--text-muted); font-variant-numeric: tabular-nums; }

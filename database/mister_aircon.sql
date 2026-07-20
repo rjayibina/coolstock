@@ -12,7 +12,7 @@ CREATE TABLE item_categories (
 
 CREATE TABLE inventory_items (
     item_id INT AUTO_INCREMENT PRIMARY KEY,
-    category_id INT NOT NULL,
+    category_id INT DEFAULT NULL,
     item_name VARCHAR(100) NOT NULL,
     description TEXT,
     unit_of_measure VARCHAR(50),

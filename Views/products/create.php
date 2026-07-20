@@ -30,20 +30,19 @@ $old = $_POST ?? [];
                 <input type="file" id="product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
                        style="margin-bottom:18px;">
 
-                <label for="category_id">Category</label>
+                <label for="category_id">Category <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
                 <?php if (empty($categories)): ?>
-                    <div class="alert alert-warning">No categories exist yet — <a href="index.php?module=categories&action=create">create one first</a>.</div>
-                <?php else: ?>
-                <select id="category_id" name="category_id" required
+                    <p style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 12px 0;">No categories yet — you can <a href="index.php?module=categories&action=create">create one</a>, or leave this product uncategorized for now.</p>
+                <?php endif; ?>
+                <select id="category_id" name="category_id"
                         style="width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:8px;font-size:14px;margin-bottom:18px;font-family:inherit;color:var(--text-dark);">
-                    <option value="">Select a category...</option>
+                    <option value="">No category</option>
                     <?php foreach ($categories as $cat): ?>
                         <option value="<?= $cat['category_id'] ?>" <?= (($old['category_id'] ?? '') == $cat['category_id']) ? 'selected' : '' ?>>
                             <?= htmlspecialchars($cat['category_name']) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <?php endif; ?>
 
                 <label for="item_name">Product Name</label>
                 <input type="text" id="item_name" name="item_name"
@@ -73,7 +72,7 @@ $old = $_POST ?? [];
                        value="<?= htmlspecialchars($old['serial_number'] ?? '') ?>">
 
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-primary" <?= empty($categories) ? 'disabled' : '' ?>>Save Product</button>
+                    <button type="submit" class="btn btn-primary">Save Product</button>
                     <a href="index.php?module=products&action=index" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>

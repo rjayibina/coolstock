@@ -73,6 +73,7 @@ require __DIR__ . '/../partials/header.php';
                     <label>Category</label>
                     <select name="category_id" onchange="this.form.submit()">
                         <option value="">All Categories</option>
+                        <option value="none" <?= $currentCategory === 'none' ? 'selected' : '' ?>>Uncategorized</option>
                         <?php foreach ($categories as $cat): ?>
                             <option value="<?= $cat['category_id'] ?>" <?= ($currentCategory == $cat['category_id']) ? 'selected' : '' ?>><?= htmlspecialchars($cat['category_name']) ?></option>
                         <?php endforeach; ?>
@@ -106,8 +107,12 @@ require __DIR__ . '/../partials/header.php';
             <div class="alert alert-success">Product updated successfully.</div>
         <?php elseif ($status === 'deleted'): ?>
             <div class="alert alert-success">Product deleted successfully.</div>
+        <?php elseif ($status === 'has_transactions'): ?>
+            <div class="alert alert-warning">This product can't be deleted because it has transaction history. Delete its transactions first if you really need to remove it.</div>
         <?php elseif ($status === 'bulk_deleted'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> deleted.</div>
+        <?php elseif ($status === 'bulk_partial'): ?>
+            <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it has' : 'they have' ?> transaction history.</div>
         <?php elseif ($status === 'bulk_updated'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> moved to the new category.</div>
         <?php endif; ?>
@@ -148,7 +153,7 @@ require __DIR__ . '/../partials/header.php';
                         <?php else: ?>
                             <?php foreach ($items as $it): ?>
                                 <?php $isLow = $it['quantity_on_hand'] <= $it['minimum_stock_level']; ?>
-                                <tr>
+                                <tr class="product-row" onclick="handleProductRowClick(event, <?= $it['item_id'] ?>)">
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $it['item_id'] ?>" class="row-check product-check" onchange="updateBulkBar()"></td>
                                     <td>
                                         <?php if (!empty($it['image_path'])): ?>
@@ -204,6 +209,41 @@ require __DIR__ . '/../partials/header.php';
             </div>
         <?php endif; ?>
 
+        <div id="viewProductModal" class="modal-overlay" onclick="if(event.target===this) this.classList.remove('open')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3 id="vpm-name">Product</h3>
+                    <button type="button" class="modal-close" onclick="document.getElementById('viewProductModal').classList.remove('open')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div style="display:flex;gap:16px;margin-bottom:16px;align-items:flex-start;">
+                        <img id="vpm-image" src="" alt="" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex-shrink:0;">
+                        <div id="vpm-image-placeholder" class="product-thumb product-thumb-placeholder" style="width:80px;height:80px;flex-shrink:0;">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                        </div>
+                        <div>
+                            <div style="margin-bottom:6px;"><span id="vpm-status" class="badge"></span></div>
+                            <div style="font-size:13px;color:var(--text-muted);">Category: <strong id="vpm-category" style="color:var(--text-dark);"></strong></div>
+                        </div>
+                    </div>
+
+                    <p id="vpm-description" style="color:var(--text-muted);"></p>
+
+                    <table style="width:100%;font-size:13.5px;border-collapse:collapse;">
+                        <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Unit of Measure</td><td id="vpm-unit" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Quantity on Hand</td><td id="vpm-stock" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Minimum Stock Level</td><td id="vpm-min" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Serial Number</td><td id="vpm-serial" style="padding:6px 0;font-weight:600;"></td></tr>
+                    </table>
+
+                    <div class="form-actions" style="margin-top:18px;">
+                        <a id="vpm-edit-link" href="#" class="btn btn-primary btn-sm">Edit Product</a>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('viewProductModal').classList.remove('open')">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="helpModal" class="modal-overlay" onclick="if(event.target===this) this.classList.remove('open')">
             <div class="modal-dialog">
                 <div class="modal-header">
@@ -234,6 +274,48 @@ require __DIR__ . '/../partials/header.php';
         </div>
 
         <script>
+        const productsData = <?= json_encode(array_column($items, null, 'item_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+
+        function handleProductRowClick(event, id) {
+            // Ignore clicks on checkboxes, links, or buttons inside the row -
+            // only clicking blank row space should open the modal
+            if (event.target.closest('input, a, button')) return;
+            showProductModal(id);
+        }
+
+        function showProductModal(id) {
+            const p = productsData[id];
+            if (!p) return;
+
+            document.getElementById('vpm-name').textContent = p.item_name;
+            document.getElementById('vpm-category').textContent = p.category_name || 'Uncategorized';
+            document.getElementById('vpm-description').textContent = p.description || 'No description provided.';
+            document.getElementById('vpm-unit').textContent = p.unit_of_measure || '—';
+            document.getElementById('vpm-stock').textContent = p.quantity_on_hand;
+            document.getElementById('vpm-min').textContent = p.minimum_stock_level;
+            document.getElementById('vpm-serial').textContent = p.serial_number || '—';
+            document.getElementById('vpm-edit-link').href = 'index.php?module=products&action=edit&id=' + id;
+
+            const statusEl = document.getElementById('vpm-status');
+            const isLow = parseInt(p.quantity_on_hand) <= parseInt(p.minimum_stock_level);
+            statusEl.textContent = isLow ? 'Low stock' : 'In stock';
+            statusEl.style.background = isLow ? 'var(--warning-bg)' : 'var(--success-bg)';
+            statusEl.style.color = isLow ? 'var(--warning)' : 'var(--success)';
+
+            const img = document.getElementById('vpm-image');
+            const placeholder = document.getElementById('vpm-image-placeholder');
+            if (p.image_path) {
+                img.src = p.image_path;
+                img.style.display = '';
+                placeholder.style.display = 'none';
+            } else {
+                img.style.display = 'none';
+                placeholder.style.display = 'flex';
+            }
+
+            document.getElementById('viewProductModal').classList.add('open');
+        }
+
         function filterProducts() {
             const q = document.getElementById('productSearch').value.toLowerCase();
             document.querySelectorAll('#productTable tbody tr').forEach(row => {
@@ -268,6 +350,7 @@ require __DIR__ . '/../partials/header.php';
             if (e.key === 'Escape') {
                 document.getElementById('addProductMenu')?.classList.remove('open');
                 document.getElementById('helpModal')?.classList.remove('open');
+                document.getElementById('viewProductModal')?.classList.remove('open');
             }
         });
         </script>
