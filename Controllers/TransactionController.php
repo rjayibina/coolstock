@@ -79,13 +79,19 @@ class TransactionController
         require __DIR__ . '/../Views/transactions/create.php';
     }
 
-    /** Delete a transaction and reverse its stock effect */
+    /** Delete a transaction and reverse its stock effect. Auto-generated
+     *  transactions (product creation / direct edits) can't be deleted here -
+     *  they're a record of something that already happened elsewhere. */
     public function delete(): void
     {
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
         if ($id > 0) {
             $record = $this->transaction->readOne($id);
+            if ($record && $record['source'] === 'auto') {
+                header("Location: index.php?module=transactions&action=index&status=auto_locked");
+                exit;
+            }
             if ($record) {
                 $reverseDelta = -Transaction::stockDelta($record['transaction_type'], (int) $record['quantity']);
                 $this->item->adjustQuantity((int) $record['item_id'], $reverseDelta);

@@ -28,8 +28,5 @@ $activeSubNav = $activeSubNav ?? '';
 </head>
 <body>
 <div class="app">
-    <?php require __DIR__ . '/sidebar-rail.php'; ?>
-    <?php if ($activeSection === 'inventory'): ?>
-        <?php require __DIR__ . '/sidebar-panel.php'; ?>
-    <?php endif; ?>
+    <?php require __DIR__ . '/sidebar.php'; ?>
     <main class="main">

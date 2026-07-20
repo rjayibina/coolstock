@@ -61,6 +61,8 @@ require __DIR__ . '/../partials/header.php';
             <div class="alert alert-success">Transaction logged and stock updated.</div>
         <?php elseif ($status === 'deleted'): ?>
             <div class="alert alert-success">Transaction deleted and stock reversed.</div>
+        <?php elseif ($status === 'auto_locked'): ?>
+            <div class="alert alert-warning">That transaction was generated automatically by the system and can't be deleted from here.</div>
         <?php endif; ?>
 
         <?php if ($error): ?>
@@ -90,12 +92,22 @@ require __DIR__ . '/../partials/header.php';
                                 <td><strong><?= htmlspecialchars($t['item_name'] ?? 'Unknown product') ?></strong></td>
                                 <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
                                 <td class="cell-id"><?= (int) $t['quantity'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars($t['technician_name'] ?? '—') ?></td>
+                                <td class="cell-muted">
+                                    <?php if ($t['source'] === 'auto'): ?>
+                                        <span style="font-style:italic;">System</span>
+                                    <?php else: ?>
+                                        <?= htmlspecialchars($t['technician_name'] ?? '—') ?>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="cell-muted"><?= htmlspecialchars($t['created_at']) ?></td>
                                 <td class="actions">
-                                    <a href="index.php?module=transactions&action=delete&id=<?= $t['transaction_id'] ?>"
-                                       class="btn btn-danger btn-sm"
-                                       onclick="return confirm('Delete this transaction? Its stock effect will be reversed.');">Delete</a>
+                                    <?php if ($t['source'] === 'manual'): ?>
+                                        <a href="index.php?module=transactions&action=delete&id=<?= $t['transaction_id'] ?>"
+                                           class="btn btn-danger btn-sm"
+                                           onclick="return confirm('Delete this transaction? Its stock effect will be reversed.');">Delete</a>
+                                    <?php else: ?>
+                                        <span class="cell-muted">—</span>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

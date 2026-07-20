@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../Models/InventoryItem.php';
 require_once __DIR__ . '/../Models/Category.php';
+require_once __DIR__ . '/../Models/Transaction.php';
 require_once __DIR__ . '/../Helpers/SpreadsheetReader.php';
 
 /**
@@ -12,12 +13,14 @@ class InventoryItemController
 {
     private InventoryItem $item;
     private Category $category;
+    private Transaction $transaction;
     private string $uploadDir;
 
     public function __construct()
     {
         $this->item = new InventoryItem();
         $this->category = new Category();
+        $this->transaction = new Transaction();
         $this->uploadDir = __DIR__ . '/../assets/uploads/products/';
     }
 
@@ -98,6 +101,10 @@ class InventoryItemController
                     $this->item->image_path = $imagePath;
 
                     if ($this->item->create()) {
+                        $newItemId = $this->item->lastInsertId();
+                        if ($this->item->quantity_on_hand > 0) {
+                            $this->logAutoTransaction($newItemId, 'stock_in', $this->item->quantity_on_hand, 'Initial stock on product creation.');
+                        }
                         header("Location: index.php?module=products&action=index&status=created");
                         exit;
                     }
@@ -135,7 +142,15 @@ class InventoryItemController
                     $this->hydrate($this->item, $_POST);
                     $this->item->image_path = $imagePath;
 
+                    $oldQuantity = (int) ($existing['quantity_on_hand'] ?? 0);
+                    $newQuantity = (int) $this->item->quantity_on_hand;
+
                     if ($this->item->update()) {
+                        if ($newQuantity !== $oldQuantity) {
+                            $delta = $newQuantity - $oldQuantity;
+                            $type = $delta > 0 ? 'stock_in' : 'stock_out';
+                            $this->logAutoTransaction($id, $type, abs($delta), 'Stock adjusted via product edit.');
+                        }
                         header("Location: index.php?module=products&action=index&status=updated");
                         exit;
                     }
@@ -303,6 +318,21 @@ class InventoryItemController
     }
 
     /** Shared validation for create + edit */
+    /** Logs a system-generated transaction (source='auto') - used when a product
+     *  is created with starting stock, or its quantity changes via direct edit.
+     *  Unlike manually logged transactions, these don't adjust stock themselves
+     *  (the create/update call already did that) - they're a record only. */
+    private function logAutoTransaction(int $itemId, string $type, int $quantity, string $notes): void
+    {
+        $this->transaction->item_id = $itemId;
+        $this->transaction->transaction_type = $type;
+        $this->transaction->quantity = $quantity;
+        $this->transaction->technician_name = null;
+        $this->transaction->notes = $notes;
+        $this->transaction->source = 'auto';
+        $this->transaction->create();
+    }
+
     private function validate(array $input): ?string
     {
         if (trim($input['item_name'] ?? '') === '') {

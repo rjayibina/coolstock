@@ -39,13 +39,12 @@ require __DIR__ . '/../partials/header.php';
                         <th>Unit</th>
                         <th>Stock</th>
                         <th>Status</th>
-                        <th style="width:110px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($products)): ?>
                         <tr class="empty-row">
-                            <td colspan="5">No products in this category yet.</td>
+                            <td colspan="4">No products in this category yet.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($products as $p): ?>
@@ -60,9 +59,6 @@ require __DIR__ . '/../partials/header.php';
                                     <?php else: ?>
                                         <span class="badge" style="background:var(--success-bg);color:var(--success);">In stock</span>
                                     <?php endif; ?>
-                                </td>
-                                <td class="actions">
-                                    <a href="index.php?module=products&action=edit&id=<?= $p['item_id'] ?>" class="btn btn-edit btn-sm">Edit</a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

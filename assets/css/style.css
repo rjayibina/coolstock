@@ -46,55 +46,6 @@ body {
     padding: 22px 14px;
 }
 
-/* .rail a:first-of-type {
-    display: none;
-} */
-
-/* ---------- Panel (secondary "Inventory" nav) ---------- */
-.panel {
-    width: 200px;
-    flex-shrink: 0;
-    background: #fff;
-    border-right: 1px solid var(--border);
-    padding: 24px 16px;
-}
-
-.panel-title {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text-dark);
-    margin-bottom: 18px;
-    padding: 0 8px;
-}
-
-/* .panel .panel-item:nth-child(2) {
-    display: none;
-} */
-
-.panel-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 12px;
-    border-radius: 8px;
-    color: var(--text-muted);
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    margin-bottom: 2px;
-}
-
-.panel-item:hover {
-    background: #F5F6FB;
-    color: var(--text-dark);
-}
-
-.panel-item.active {
-    background: #EEF0FE;
-    color: var(--accent);
-    font-weight: 600;
-}
-
 .brand {
     display: flex;
     align-items: center;
@@ -162,6 +113,45 @@ body {
     margin-top: auto;
     padding-top: 14px;
     border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Inventory group toggle - same look as .nav-item but is a <button> */
+.nav-group-toggle {
+    width: 100%;
+    border: none;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.nav-submenu {
+    margin: 2px 0 6px 0;
+}
+
+.nav-subitem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px 8px 34px;
+    border-radius: 8px;
+    color: var(--sidebar-text);
+    text-decoration: none;
+    font-size: 13.5px;
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+.nav-subitem svg { flex-shrink: 0; opacity: 0.85; }
+
+.nav-subitem:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.nav-subitem.active {
+    background: var(--sidebar-bg-active);
+    color: var(--sidebar-text-active);
+    font-weight: 600;
 }
 
 /* ---------- Main area ---------- */

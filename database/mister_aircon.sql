@@ -34,6 +34,7 @@ CREATE TABLE transactions (
     quantity INT NOT NULL,
     technician_name VARCHAR(100) DEFAULT NULL,
     notes TEXT,
+    source ENUM('manual', 'auto') NOT NULL DEFAULT 'manual',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES inventory_items(item_id)
         ON UPDATE CASCADE

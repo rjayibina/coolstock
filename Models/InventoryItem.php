@@ -54,6 +54,12 @@ class InventoryItem
         return $stmt->execute();
     }
 
+    /** The auto-increment id of the row just inserted by create() */
+    public function lastInsertId(): int
+    {
+        return (int) $this->conn->lastInsertId();
+    }
+
     /** READ - all items, joined with category name, most recent first.
      *  $categoryId / $stockStatus ('low'|'in_stock') / $hasSerial ('1'|'0') optionally filter the results.
      *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
