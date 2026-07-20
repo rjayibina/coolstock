@@ -78,7 +78,6 @@ require __DIR__ . '/../partials/header.php';
                         <th>Quantity</th>
                         <th>Technician</th>
                         <th>Date</th>
-                        <th style="width:100px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -100,15 +99,6 @@ require __DIR__ . '/../partials/header.php';
                                     <?php endif; ?>
                                 </td>
                                 <td class="cell-muted"><?= htmlspecialchars($t['created_at']) ?></td>
-                                <td class="actions">
-                                    <?php if ($t['source'] === 'manual'): ?>
-                                        <a href="index.php?module=transactions&action=delete&id=<?= $t['transaction_id'] ?>"
-                                           class="btn btn-danger btn-sm"
-                                           onclick="return confirm('Delete this transaction? Its stock effect will be reversed.');">Delete</a>
-                                    <?php else: ?>
-                                        <span class="cell-muted">—</span>
-                                    <?php endif; ?>
-                                </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
