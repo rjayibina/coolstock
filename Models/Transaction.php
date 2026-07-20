@@ -1,0 +1,159 @@
+<?php
+require_once __DIR__ . '/../Config/Database.php';
+
+/**
+ * Transaction.php (Model)
+ * Every row is one movement of stock: Stock-In, Stock-Out, Item Request,
+ * Borrow, or Return - matching the Inventory Management Module and the
+ * Item Request and Return Monitoring Module from the thesis scope.
+ *
+ * Transactions are treated as an immutable ledger: there is no "update",
+ * only create and delete (deleting reverses its stock effect).
+ */
+class Transaction
+{
+    private PDO $conn;
+    private string $table = "transactions";
+
+    public const TYPES = ['stock_in', 'stock_out', 'item_request', 'borrow', 'return'];
+
+    public ?int $transaction_id = null;
+    public ?int $item_id = null;
+    public ?string $transaction_type = null;
+    public ?int $quantity = null;
+    // TODO: once the User Access and Roles Module exists, replace this free-text
+    // field with a technician_id FK into a users/technicians table.
+    public ?string $technician_name = null;
+    public ?string $notes = null;
+
+    public function __construct()
+    {
+        $this->conn = Database::getInstance()->getConnection();
+    }
+
+    /** Whether this transaction type adds stock back (true) or removes it (false) */
+    public static function isInbound(string $type): bool
+    {
+        return in_array($type, ['stock_in', 'return'], true);
+    }
+
+    /** The signed quantity delta this transaction applies to inventory */
+    public static function stockDelta(string $type, int $quantity): int
+    {
+        return self::isInbound($type) ? $quantity : -$quantity;
+    }
+
+    public static function typeLabel(string $type): string
+    {
+        return match ($type) {
+            'stock_in' => 'Stock In',
+            'stock_out' => 'Stock Out',
+            'item_request' => 'Item Request',
+            'borrow' => 'Borrow',
+            'return' => 'Return',
+            default => ucfirst($type),
+        };
+    }
+
+    /** CREATE - insert a new transaction record */
+    public function create(): bool
+    {
+        $query = "INSERT INTO {$this->table}
+                    (item_id, transaction_type, quantity, technician_name, notes)
+                  VALUES
+                    (:item_id, :transaction_type, :quantity, :technician_name, :notes)";
+
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
+        $stmt->bindParam(':transaction_type', $this->transaction_type);
+        $stmt->bindParam(':quantity', $this->quantity, PDO::PARAM_INT);
+        $stmt->bindParam(':technician_name', $this->technician_name);
+        $stmt->bindParam(':notes', $this->notes);
+
+        return $stmt->execute();
+    }
+
+    /** READ - all transactions, joined with item name, most recent first.
+     *  $itemId / $type optionally filter the results. */
+    public function readAll(?int $itemId = null, ?string $type = null): array
+    {
+        $query = "SELECT t.*, i.item_name
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  WHERE 1=1";
+        $params = [];
+
+        if ($itemId) {
+            $query .= " AND t.item_id = :item_id";
+            $params[':item_id'] = $itemId;
+        }
+        if ($type && in_array($type, self::TYPES, true)) {
+            $query .= " AND t.transaction_type = :type";
+            $params[':type'] = $type;
+        }
+
+        $query .= " ORDER BY t.transaction_id DESC";
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    /** READ - most recent N transactions, for the Dashboard */
+    public function readRecent(int $limit = 5): array
+    {
+        $query = "SELECT t.*, i.item_name
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  ORDER BY t.transaction_id DESC
+                  LIMIT :limit";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    /** READ - single transaction by id (used before reversing/deleting) */
+    public function readOne(int $id): array|false
+    {
+        $query = "SELECT * FROM {$this->table} WHERE transaction_id = :id LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch();
+    }
+
+    /** DELETE - remove a transaction row (stock reversal is handled by the controller) */
+    public function delete(int $id): bool
+    {
+        $query = "DELETE FROM {$this->table} WHERE transaction_id = :id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        return $stmt->execute();
+    }
+
+    /** Count of all transactions - used on the Dashboard */
+    public function count(): int
+    {
+        $stmt = $this->conn->query("SELECT COUNT(*) AS total FROM {$this->table}");
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** Count grouped by transaction_type - used for the Dashboard bar chart */
+    public function countByType(): array
+    {
+        $query = "SELECT transaction_type, COUNT(*) AS total FROM {$this->table} GROUP BY transaction_type";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        $rows = $stmt->fetchAll();
+
+        // Normalize so every type always appears, even with a zero count
+        $counts = array_fill_keys(self::TYPES, 0);
+        foreach ($rows as $row) {
+            $counts[$row['transaction_type']] = (int) $row['total'];
+        }
+        return $counts;
+    }
+}
