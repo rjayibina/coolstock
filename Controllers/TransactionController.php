@@ -20,7 +20,9 @@ class TransactionController
         $this->item = new InventoryItem();
     }
 
-    /** List all transactions, optionally filtered by product / type */
+    private const PER_PAGE = 10;
+
+    /** List all transactions, optionally filtered by product / type, and paginated */
     public function index(): void
     {
         $filterItemId = !empty($_GET['item_id']) ? (int) $_GET['item_id'] : null;
@@ -28,8 +30,23 @@ class TransactionController
 
         $error = null;
         $transactions = [];
+        $pagination = ['page' => 1, 'perPage' => self::PER_PAGE, 'totalCount' => 0, 'totalPages' => 1];
+
         try {
-            $transactions = $this->transaction->readAll($filterItemId, $filterType);
+            $page = max(1, (int) ($_GET['page'] ?? 1));
+            $totalCount = $this->transaction->countFiltered($filterItemId, $filterType);
+            $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * self::PER_PAGE;
+
+            $transactions = $this->transaction->readAll($filterItemId, $filterType, null, self::PER_PAGE, $offset);
+
+            $pagination = [
+                'page' => $page,
+                'perPage' => self::PER_PAGE,
+                'totalCount' => $totalCount,
+                'totalPages' => $totalPages,
+            ];
         } catch (PDOException $e) {
             $error = "Could not load transactions: " . $e->getMessage()
                 . " — make sure the 'transactions' table exists (run database/migration_add_transactions.sql).";

@@ -1,7 +1,8 @@
 <?php
 /**
  * Views/transactions/index.php
- * Expects: $transactions (array), $items (array, for the filter dropdown), $error (string|null)
+ * Expects: $transactions (array), $items (array, for the filter dropdown),
+ *          $pagination (array: page, perPage, totalCount, totalPages), $error (string|null)
  */
 require_once __DIR__ . '/../../Models/Transaction.php';
 $status = $_GET['status'] ?? null;
@@ -11,14 +12,29 @@ $pageTitle = 'Transactions';
 $activeSection = 'inventory';
 $activeSubNav = 'transactions';
 $count = count($transactions);
+
+// Builds a pagination link that keeps the current filters
+function transactionPageUrl(int $page): string
+{
+    global $currentItem, $currentType;
+    return "index.php?module=transactions&action=index"
+        . "&item_id=" . urlencode($currentItem)
+        . "&type=" . urlencode($currentType)
+        . "&page=" . $page;
+}
+
 require __DIR__ . '/../partials/header.php';
 ?>
         <div class="page-header">
             <div class="page-title-group">
                 <h1 class="page-title">Transactions</h1>
-                <span class="page-title-count"><?= $count ?> <?= $count === 1 ? 'record' : 'records' ?></span>
+                <span class="page-title-count"><?= $pagination['totalCount'] ?> <?= $pagination['totalCount'] === 1 ? 'record' : 'records' ?></span>
             </div>
             <div class="header-actions">
+                <div class="search-box">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" id="transactionSearch" placeholder="Search transactions..." onkeyup="filterTransactions()">
+                </div>
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('filterPanel').classList.toggle('open')">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                     Filter
@@ -83,7 +99,7 @@ require __DIR__ . '/../partials/header.php';
                 <tbody>
                     <?php if (empty($transactions)): ?>
                         <tr class="empty-row">
-                            <td colspan="6">No transactions match these filters.</td>
+                            <td colspan="5">No transactions match these filters.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($transactions as $t): ?>
@@ -105,4 +121,31 @@ require __DIR__ . '/../partials/header.php';
                 </tbody>
             </table>
         </div>
+
+        <?php if ($pagination['totalCount'] > 0): ?>
+            <?php
+            $startRow = ($pagination['page'] - 1) * $pagination['perPage'] + 1;
+            $endRow = min($pagination['page'] * $pagination['perPage'], $pagination['totalCount']);
+            ?>
+            <div class="pagination-bar">
+                <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> transactions</span>
+                <div class="pagination-controls">
+                    <a href="<?= transactionPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
+                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
+                        <a href="<?= transactionPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                    <?php endfor; ?>
+                    <a href="<?= transactionPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <script>
+        function filterTransactions() {
+            const q = document.getElementById('transactionSearch').value.toLowerCase();
+            document.querySelectorAll('#transactionTable tbody tr').forEach(row => {
+                if (row.classList.contains('empty-row')) return;
+                row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        }
+        </script>
 <?php require __DIR__ . '/../partials/footer.php'; ?>

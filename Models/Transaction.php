@@ -80,31 +80,72 @@ class Transaction
     }
 
     /** READ - all transactions, joined with item name, most recent first.
-     *  $itemId / $type optionally filter the results. */
-    public function readAll(?int $itemId = null, ?string $type = null): array
+     *  $itemId / $type / $search optionally filter the results.
+     *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
+    public function readAll(?int $itemId = null, ?string $type = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
     {
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search);
+
         $query = "SELECT t.*, i.item_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
-                  WHERE 1=1";
-        $params = [];
+                  WHERE {$where}
+                  ORDER BY t.transaction_id DESC";
 
-        if ($itemId) {
-            $query .= " AND t.item_id = :item_id";
-            $params[':item_id'] = $itemId;
-        }
-        if ($type && in_array($type, self::TYPES, true)) {
-            $query .= " AND t.transaction_type = :type";
-            $params[':type'] = $type;
+        if ($limit !== null && $offset !== null) {
+            $query .= " LIMIT :limit OFFSET :offset";
         }
 
-        $query .= " ORDER BY t.transaction_id DESC";
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        if ($limit !== null && $offset !== null) {
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    /** Count of transactions matching the same filters as readAll() - for pagination */
+    public function countFiltered(?int $itemId = null, ?string $type = null, ?string $search = null): int
+    {
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search);
+
+        $query = "SELECT COUNT(*) AS total
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  WHERE {$where}";
+
         $stmt = $this->conn->prepare($query);
         foreach ($params as $key => $value) {
             $stmt->bindValue($key, $value);
         }
         $stmt->execute();
-        return $stmt->fetchAll();
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** Shared WHERE-clause builder for readAll() and countFiltered() so the two never drift apart */
+    private function buildFilterClause(?int $itemId, ?string $type, ?string $search): array
+    {
+        $where = "1=1";
+        $params = [];
+
+        if ($itemId) {
+            $where .= " AND t.item_id = :item_id";
+            $params[':item_id'] = $itemId;
+        }
+        if ($type && in_array($type, self::TYPES, true)) {
+            $where .= " AND t.transaction_type = :type";
+            $params[':type'] = $type;
+        }
+        if ($search !== null && trim($search) !== '') {
+            $where .= " AND (i.item_name LIKE :search OR t.technician_name LIKE :search OR t.notes LIKE :search)";
+            $params[':search'] = '%' . trim($search) . '%';
+        }
+
+        return [$where, $params];
     }
 
     /** READ - most recent N transactions, for the Dashboard */

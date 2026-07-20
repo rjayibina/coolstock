@@ -13,7 +13,7 @@ $selectedCategoryName = $selectedCategoryName ?? '';
     <input type="hidden" name="category_id" id="category_id" value="<?= htmlspecialchars((string) $selectedCategoryId) ?>">
 
     <div class="combo-trigger" id="categoryTrigger" tabindex="0" onclick="toggleCategoryCombo()">
-        <span id="categoryComboLabel"><?= $selectedCategoryName !== '' ? htmlspecialchars($selectedCategoryName) : 'No category' ?></span>
+        <span id="categoryComboLabel"><?= $selectedCategoryName !== '' ? htmlspecialchars($selectedCategoryName) : 'Uncategorized' ?></span>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
 
@@ -29,7 +29,7 @@ $selectedCategoryName = $selectedCategoryName ?? '';
         </div>
 
         <div class="combo-options" id="categoryComboOptions">
-            <div class="combo-option" data-id="" data-name="No category" onclick="selectCategoryOption('', 'No category')">No category</div>
+            <div class="combo-option" data-id="" data-name="Uncategorized" onclick="selectCategoryOption('', 'Uncategorized')">Uncategorized</div>
             <?php foreach ($categories as $cat): ?>
                 <div class="combo-option" data-id="<?= $cat['category_id'] ?>" data-name="<?= htmlspecialchars($cat['category_name'], ENT_QUOTES) ?>" onclick="selectCategoryOption('<?= $cat['category_id'] ?>', '<?= htmlspecialchars($cat['category_name'], ENT_QUOTES) ?>')">
                     <?= htmlspecialchars($cat['category_name']) ?>

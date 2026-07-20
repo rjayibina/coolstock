@@ -52,11 +52,11 @@ require __DIR__ . '/../partials/header.php';
                     </button>
                     <div id="addProductMenu" class="dropdown-menu">
                         <a href="index.php?module=products&action=import">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             Import
                         </a>
                         <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&has_serial=<?= urlencode($currentSerial) ?>">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             Export
                         </a>
                     </div>
@@ -152,7 +152,10 @@ require __DIR__ . '/../partials/header.php';
                             </tr>
                         <?php else: ?>
                             <?php foreach ($items as $it): ?>
-                                <?php $isLow = $it['quantity_on_hand'] <= $it['minimum_stock_level']; ?>
+                                <?php
+                                $isOut = (int) $it['quantity_on_hand'] === 0;
+                                $isLow = !$isOut && $it['quantity_on_hand'] <= $it['minimum_stock_level'];
+                                ?>
                                 <tr class="product-row" onclick="handleProductRowClick(event, <?= $it['item_id'] ?>)">
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $it['item_id'] ?>" class="row-check product-check" onchange="updateBulkBar()"></td>
                                     <td>
@@ -170,7 +173,9 @@ require __DIR__ . '/../partials/header.php';
                                     <td class="cell-muted"><?= htmlspecialchars($it['serial_number'] ?? '—') ?></td>
                                     <td class="cell-id"><?= (int) $it['quantity_on_hand'] ?> <span class="cell-muted">/ min <?= (int) $it['minimum_stock_level'] ?></span></td>
                                     <td>
-                                        <?php if ($isLow): ?>
+                                        <?php if ($isOut): ?>
+                                            <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Out of stock</span>
+                                        <?php elseif ($isLow): ?>
                                             <span class="badge" style="background:var(--warning-bg);color:var(--warning);">Low stock</span>
                                         <?php else: ?>
                                             <span class="badge" style="background:var(--success-bg);color:var(--success);">In stock</span>
@@ -297,10 +302,23 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vpm-edit-link').href = 'index.php?module=products&action=edit&id=' + id;
 
             const statusEl = document.getElementById('vpm-status');
-            const isLow = parseInt(p.quantity_on_hand) <= parseInt(p.minimum_stock_level);
-            statusEl.textContent = isLow ? 'Low stock' : 'In stock';
-            statusEl.style.background = isLow ? 'var(--warning-bg)' : 'var(--success-bg)';
-            statusEl.style.color = isLow ? 'var(--warning)' : 'var(--success)';
+            const qty = parseInt(p.quantity_on_hand);
+            const isOut = qty === 0;
+            const isLow = !isOut && qty <= parseInt(p.minimum_stock_level);
+
+            if (isOut) {
+                statusEl.textContent = 'Out of stock';
+                statusEl.style.background = 'var(--danger-bg)';
+                statusEl.style.color = 'var(--danger)';
+            } else if (isLow) {
+                statusEl.textContent = 'Low stock';
+                statusEl.style.background = 'var(--warning-bg)';
+                statusEl.style.color = 'var(--warning)';
+            } else {
+                statusEl.textContent = 'In stock';
+                statusEl.style.background = 'var(--success-bg)';
+                statusEl.style.color = 'var(--success)';
+            }
 
             const img = document.getElementById('vpm-image');
             const placeholder = document.getElementById('vpm-image-placeholder');

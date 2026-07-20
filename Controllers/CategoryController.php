@@ -51,7 +51,8 @@ class CategoryController
     /** List all categories, each with its product count */
     public function index(): void
     {
-        $categories = $this->category->readAllWithCounts();
+        $productFilter = $_GET['has_products'] ?? null;
+        $categories = $this->category->readAllWithCounts($productFilter);
         require __DIR__ . '/../Views/categories/index.php';
     }
 

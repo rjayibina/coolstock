@@ -48,13 +48,18 @@ require __DIR__ . '/../partials/header.php';
                         </tr>
                     <?php else: ?>
                         <?php foreach ($products as $p): ?>
-                            <?php $isLow = $p['quantity_on_hand'] <= $p['minimum_stock_level']; ?>
+                            <?php
+                            $isOut = (int) $p['quantity_on_hand'] === 0;
+                            $isLow = !$isOut && $p['quantity_on_hand'] <= $p['minimum_stock_level'];
+                            ?>
                             <tr>
                                 <td><strong><?= htmlspecialchars($p['item_name']) ?></strong></td>
                                 <td class="cell-muted"><?= htmlspecialchars($p['unit_of_measure'] ?? '—') ?></td>
                                 <td class="cell-id"><?= (int) $p['quantity_on_hand'] ?> <span class="cell-muted">/ min <?= (int) $p['minimum_stock_level'] ?></span></td>
                                 <td>
-                                    <?php if ($isLow): ?>
+                                    <?php if ($isOut): ?>
+                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Out of stock</span>
+                                    <?php elseif ($isLow): ?>
                                         <span class="badge" style="background:var(--warning-bg);color:var(--warning);">Low stock</span>
                                     <?php else: ?>
                                         <span class="badge" style="background:var(--success-bg);color:var(--success);">In stock</span>

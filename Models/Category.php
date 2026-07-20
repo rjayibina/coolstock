@@ -51,13 +51,21 @@ class Category
     }
 
     /** READ - every category with its product count, most recent first (Categories page card layout) */
-    public function readAllWithCounts(): array
+    /** $productFilter: 'has' (only categories with 1+ products), 'empty' (only categories with 0), or null (all) */
+    public function readAllWithCounts(?string $productFilter = null): array
     {
         $query = "SELECT c.*, COUNT(i.item_id) AS product_count
                   FROM {$this->table} c
                   LEFT JOIN inventory_items i ON i.category_id = c.category_id
-                  GROUP BY c.category_id
-                  ORDER BY c.category_id DESC";
+                  GROUP BY c.category_id";
+
+        if ($productFilter === 'has') {
+            $query .= " HAVING product_count > 0";
+        } elseif ($productFilter === 'empty') {
+            $query .= " HAVING product_count = 0";
+        }
+
+        $query .= " ORDER BY c.category_id DESC";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll();
