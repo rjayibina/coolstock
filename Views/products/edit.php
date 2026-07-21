@@ -29,13 +29,17 @@ require __DIR__ . '/../partials/header.php';
 
                 <label for="product_image">Product Image</label>
                 <?php if (!empty($data['image_path'])): ?>
-                    <div style="margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
                         <img src="<?= htmlspecialchars($data['image_path']) ?>" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+                        <label style="display:flex;align-items:center;gap:6px;font-weight:500;font-size:13px;color:var(--text-muted);margin:0;">
+                            <input type="checkbox" name="remove_image" value="1" style="width:auto;">
+                            Remove this image
+                        </label>
                     </div>
                 <?php endif; ?>
                 <input type="file" id="product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
                        style="margin-bottom:18px;">
-                <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave empty to keep the current image.</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave empty to keep the current image, or choose a new file to replace it.</div>
 
                 <?php
                 $selectedCategoryId = $data['category_id'] ?? '';

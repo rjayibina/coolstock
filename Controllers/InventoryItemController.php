@@ -29,7 +29,8 @@ class InventoryItemController
     /** List all inventory items, optionally filtered by category / stock status / serial, and paginated */
     public function index(): void
     {
-        $categoryId = !empty($_GET['category_id']) ? (int) $_GET['category_id'] : null;
+        $categoryId = $_GET['category_id'] ?? null;
+        $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
         $hasSerial = $_GET['has_serial'] ?? null;
 
@@ -366,6 +367,15 @@ class InventoryItemController
      */
     private function handleImageUpload(?string $keepExisting = null): array
     {
+        // "Remove image" checkbox takes effect only when no new file is chosen
+        // (uploading a new file always wins over a stale "remove" checkbox state)
+        if (empty($_FILES['product_image']['name']) && !empty($_POST['remove_image'])) {
+            if ($keepExisting) {
+                $this->deleteImageFile($keepExisting);
+            }
+            return [null, null];
+        }
+
         if (empty($_FILES['product_image']['name'])) {
             return [$keepExisting, null];
         }

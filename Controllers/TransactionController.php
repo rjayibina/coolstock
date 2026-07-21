@@ -70,11 +70,14 @@ class TransactionController
                 $itemId = (int) $_POST['item_id'];
                 $type = $_POST['transaction_type'];
                 $qty = (int) $_POST['quantity'];
+                $isRequest = $type === 'item_request';
                 $delta = Transaction::stockDelta($type, $qty);
 
                 $current = $this->item->readOne($itemId);
 
-                if ($delta < 0 && $current && ($current['quantity_on_hand'] + $delta) < 0) {
+                // Item Requests don't touch stock at creation time - the
+                // sufficiency check happens later, when the request is approved.
+                if (!$isRequest && $delta < 0 && $current && ($current['quantity_on_hand'] + $delta) < 0) {
                     $error = "Not enough stock: only {$current['quantity_on_hand']} {$current['unit_of_measure']} available.";
                 } else {
                     $this->transaction->item_id = $itemId;
@@ -82,10 +85,14 @@ class TransactionController
                     $this->transaction->quantity = $qty;
                     $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
                     $this->transaction->notes = trim($_POST['notes'] ?? '');
+                    $this->transaction->status = $isRequest ? 'pending' : 'completed';
 
                     if ($this->transaction->create()) {
-                        $this->item->adjustQuantity($itemId, $delta);
-                        header("Location: index.php?module=transactions&action=index&status=created");
+                        if (!$isRequest) {
+                            $this->item->adjustQuantity($itemId, $delta);
+                        }
+                        $status = $isRequest ? 'requested' : 'created';
+                        header("Location: index.php?module=transactions&action=index&status=$status");
                         exit;
                     }
                     $error = "Something went wrong while logging the transaction.";
@@ -94,6 +101,39 @@ class TransactionController
         }
 
         require __DIR__ . '/../Views/transactions/create.php';
+    }
+
+    /** Delete a transaction and reverse its stock effect. Auto-generated
+     *  transactions (product creation / direct edits) can't be deleted here -
+     *  they're a record of something that already happened elsewhere. */
+    /** Approves a pending Item Request: deducts stock now and marks it completed */
+    public function approve(): void
+    {
+        $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+
+        if ($id > 0) {
+            $record = $this->transaction->readOne($id);
+
+            if (!$record || $record['transaction_type'] !== 'item_request' || $record['status'] !== 'pending') {
+                header("Location: index.php?module=transactions&action=index&status=approve_invalid");
+                exit;
+            }
+
+            $current = $this->item->readOne((int) $record['item_id']);
+            $quantity = (int) $record['quantity'];
+
+            if (!$current || $current['quantity_on_hand'] < $quantity) {
+                $available = $current['quantity_on_hand'] ?? 0;
+                header("Location: index.php?module=transactions&action=index&status=approve_insufficient&available=$available");
+                exit;
+            }
+
+            $this->item->adjustQuantity((int) $record['item_id'], -$quantity);
+            $this->transaction->markCompleted($id);
+        }
+
+        header("Location: index.php?module=transactions&action=index&status=approved");
+        exit;
     }
 
     /** Delete a transaction and reverse its stock effect. Auto-generated
@@ -110,8 +150,12 @@ class TransactionController
                 exit;
             }
             if ($record) {
-                $reverseDelta = -Transaction::stockDelta($record['transaction_type'], (int) $record['quantity']);
-                $this->item->adjustQuantity((int) $record['item_id'], $reverseDelta);
+                // Pending Item Requests never deducted stock in the first place -
+                // reversing them would incorrectly add stock that was never removed.
+                if ($record['status'] === 'completed') {
+                    $reverseDelta = -Transaction::stockDelta($record['transaction_type'], (int) $record['quantity']);
+                    $this->item->adjustQuantity((int) $record['item_id'], $reverseDelta);
+                }
                 $this->transaction->delete($id);
             }
         }

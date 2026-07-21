@@ -35,6 +35,7 @@ CREATE TABLE transactions (
     technician_name VARCHAR(100) DEFAULT NULL,
     notes TEXT,
     source ENUM('manual', 'auto') NOT NULL DEFAULT 'manual',
+    status ENUM('pending', 'completed') NOT NULL DEFAULT 'completed',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (item_id) REFERENCES inventory_items(item_id)
         ON UPDATE CASCADE

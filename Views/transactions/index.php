@@ -75,6 +75,14 @@ require __DIR__ . '/../partials/header.php';
 
         <?php if ($status === 'created'): ?>
             <div class="alert alert-success">Transaction logged and stock updated.</div>
+        <?php elseif ($status === 'requested'): ?>
+            <div class="alert alert-success">Item request logged as pending — stock won't be deducted until it's approved.</div>
+        <?php elseif ($status === 'approved'): ?>
+            <div class="alert alert-success">Request approved and stock deducted.</div>
+        <?php elseif ($status === 'approve_insufficient'): ?>
+            <div class="alert alert-warning">Can't approve — only <?= (int) ($_GET['available'] ?? 0) ?> in stock, which isn't enough to cover this request.</div>
+        <?php elseif ($status === 'approve_invalid'): ?>
+            <div class="alert alert-warning">That request has already been handled or doesn't exist.</div>
         <?php elseif ($status === 'deleted'): ?>
             <div class="alert alert-success">Transaction deleted and stock reversed.</div>
         <?php elseif ($status === 'auto_locked'): ?>
@@ -93,13 +101,16 @@ require __DIR__ . '/../partials/header.php';
                         <th>Type</th>
                         <th>Quantity</th>
                         <th>Technician</th>
+                        <th>Notes</th>
+                        <th>Status</th>
                         <th>Date</th>
+                        <th style="width:100px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($transactions)): ?>
                         <tr class="empty-row">
-                            <td colspan="5">No transactions match these filters.</td>
+                            <td colspan="8">No transactions match these filters.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($transactions as $t): ?>
@@ -114,7 +125,24 @@ require __DIR__ . '/../partials/header.php';
                                         <?= htmlspecialchars($t['technician_name'] ?? '—') ?>
                                     <?php endif; ?>
                                 </td>
+                                <td class="cell-muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?= htmlspecialchars($t['notes'] ?? '') ?>"><?= htmlspecialchars($t['notes'] ?: '—') ?></td>
+                                <td>
+                                    <?php if ($t['status'] === 'pending'): ?>
+                                        <span class="badge" style="background:var(--warning-bg);color:var(--warning);">Pending</span>
+                                    <?php else: ?>
+                                        <span class="badge" style="background:var(--success-bg);color:var(--success);">Completed</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="cell-muted"><?= htmlspecialchars($t['created_at']) ?></td>
+                                <td class="actions">
+                                    <?php if ($t['status'] === 'pending' && $t['transaction_type'] === 'item_request'): ?>
+                                        <a href="index.php?module=transactions&action=approve&id=<?= $t['transaction_id'] ?>"
+                                           class="btn btn-sm" style="background:var(--success-bg);color:var(--success);"
+                                           onclick="return confirm('Approve this request? Stock will be deducted now.');">Approve</a>
+                                    <?php else: ?>
+                                        <span class="cell-muted">—</span>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>

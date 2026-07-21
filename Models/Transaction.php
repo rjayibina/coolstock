@@ -30,6 +30,9 @@ class Transaction
     // edited directly on the product form). Auto rows can't be deleted from
     // the UI since undoing them wouldn't reliably reverse-sync the product.
     public string $source = 'manual';
+    // 'pending' = an Item Request that hasn't been approved yet (no stock
+    // deducted). 'completed' = everything else, and approved requests.
+    public string $status = 'completed';
 
     public function __construct()
     {
@@ -64,9 +67,9 @@ class Transaction
     public function create(): bool
     {
         $query = "INSERT INTO {$this->table}
-                    (item_id, transaction_type, quantity, technician_name, notes, source)
+                    (item_id, transaction_type, quantity, technician_name, notes, source, status)
                   VALUES
-                    (:item_id, :transaction_type, :quantity, :technician_name, :notes, :source)";
+                    (:item_id, :transaction_type, :quantity, :technician_name, :notes, :source, :status)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
@@ -75,7 +78,17 @@ class Transaction
         $stmt->bindParam(':technician_name', $this->technician_name);
         $stmt->bindParam(':notes', $this->notes);
         $stmt->bindParam(':source', $this->source);
+        $stmt->bindParam(':status', $this->status);
 
+        return $stmt->execute();
+    }
+
+    /** Marks a pending Item Request as completed (called when it's approved) */
+    public function markCompleted(int $id): bool
+    {
+        $query = "UPDATE {$this->table} SET status = 'completed' WHERE transaction_id = :id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
     }
 

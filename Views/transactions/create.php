@@ -35,7 +35,7 @@ $old = $_POST ?: array_filter(['item_id' => $prefillItemId, 'transaction_type' =
                     <option value="">Select a type...</option>
                     <option value="stock_in" <?= (($old['transaction_type'] ?? '') === 'stock_in') ? 'selected' : '' ?>>Stock In — new or returned stock added</option>
                     <option value="stock_out" <?= (($old['transaction_type'] ?? '') === 'stock_out') ? 'selected' : '' ?>>Stock Out — items released for service use</option>
-                    <option value="item_request" <?= (($old['transaction_type'] ?? '') === 'item_request') ? 'selected' : '' ?>>Item Request — technician requests tools/materials</option>
+                    <option value="item_request" <?= (($old['transaction_type'] ?? '') === 'item_request') ? 'selected' : '' ?>>Item Request — pending until approved, stock not deducted yet</option>
                     <option value="borrow" <?= (($old['transaction_type'] ?? '') === 'borrow') ? 'selected' : '' ?>>Borrow — technician borrows a tool temporarily</option>
                     <option value="return" <?= (($old['transaction_type'] ?? '') === 'return') ? 'selected' : '' ?>>Return — borrowed or requested item returned</option>
                 </select>
