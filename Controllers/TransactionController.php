@@ -22,11 +22,14 @@ class TransactionController
 
     private const PER_PAGE = 10;
 
-    /** List all transactions, optionally filtered by product / type, and paginated */
+    /** List all transactions, optionally filtered by product / type / date range, sorted, and paginated */
     public function index(): void
     {
         $filterItemId = !empty($_GET['item_id']) ? (int) $_GET['item_id'] : null;
         $filterType = $_GET['type'] ?? null;
+        $dateFrom = $_GET['date_from'] ?? null;
+        $dateTo = $_GET['date_to'] ?? null;
+        $sort = $_GET['sort'] ?? 'date_desc';
 
         $error = null;
         $transactions = [];
@@ -34,12 +37,12 @@ class TransactionController
 
         try {
             $page = max(1, (int) ($_GET['page'] ?? 1));
-            $totalCount = $this->transaction->countFiltered($filterItemId, $filterType);
+            $totalCount = $this->transaction->countFiltered($filterItemId, $filterType, null, $dateFrom, $dateTo);
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
             $page = min($page, $totalPages);
             $offset = ($page - 1) * self::PER_PAGE;
 
-            $transactions = $this->transaction->readAll($filterItemId, $filterType, null, self::PER_PAGE, $offset);
+            $transactions = $this->transaction->readAll($filterItemId, $filterType, null, $dateFrom, $dateTo, $sort, self::PER_PAGE, $offset);
 
             $pagination = [
                 'page' => $page,
@@ -103,9 +106,6 @@ class TransactionController
         require __DIR__ . '/../Views/transactions/create.php';
     }
 
-    /** Delete a transaction and reverse its stock effect. Auto-generated
-     *  transactions (product creation / direct edits) can't be deleted here -
-     *  they're a record of something that already happened elsewhere. */
     /** Approves a pending Item Request: deducts stock now and marks it completed */
     public function approve(): void
     {
@@ -136,6 +136,25 @@ class TransactionController
         exit;
     }
 
+    /** Declines a pending Item Request. No stock effect (never deducted in
+     *  the first place) - the row stays as a record that it was refused. */
+    public function decline(): void
+    {
+        $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+
+        if ($id > 0) {
+            $record = $this->transaction->readOne($id);
+            if ($record && $record['transaction_type'] === 'item_request' && $record['status'] === 'pending') {
+                $this->transaction->markDeclined($id);
+                header("Location: index.php?module=transactions&action=index&status=declined");
+                exit;
+            }
+        }
+
+        header("Location: index.php?module=transactions&action=index&status=approve_invalid");
+        exit;
+    }
+
     /** Delete a transaction and reverse its stock effect. Auto-generated
      *  transactions (product creation / direct edits) can't be deleted here -
      *  they're a record of something that already happened elsewhere. */
@@ -161,6 +180,68 @@ class TransactionController
         }
 
         header("Location: index.php?module=transactions&action=index&status=deleted");
+        exit;
+    }
+
+    /** Bulk delete - same rules as single delete(): skips auto rows, only
+     *  reverses stock for completed ones, leaves pending requests alone */
+    public function bulkDelete(): void
+    {
+        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
+        $deleted = 0;
+        $skipped = 0;
+
+        foreach ($ids as $id) {
+            $record = $this->transaction->readOne($id);
+            if (!$record) {
+                continue;
+            }
+            if ($record['source'] === 'auto') {
+                $skipped++;
+                continue;
+            }
+            if ($record['status'] === 'completed') {
+                $reverseDelta = -Transaction::stockDelta($record['transaction_type'], (int) $record['quantity']);
+                $this->item->adjustQuantity((int) $record['item_id'], $reverseDelta);
+            }
+            $this->transaction->delete($id);
+            $deleted++;
+        }
+
+        $status = $skipped > 0 ? 'bulk_partial' : 'bulk_deleted';
+        header("Location: index.php?module=transactions&action=index&status=$status&count=$deleted&skipped=$skipped");
+        exit;
+    }
+
+    /** Bulk approve - only affects pending Item Requests among the selection;
+     *  anything else (already handled, or a different type) is silently skipped */
+    public function bulkApprove(): void
+    {
+        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
+        $approved = 0;
+        $skipped = 0;
+
+        foreach ($ids as $id) {
+            $record = $this->transaction->readOne($id);
+            if (!$record || $record['transaction_type'] !== 'item_request' || $record['status'] !== 'pending') {
+                $skipped++;
+                continue;
+            }
+
+            $current = $this->item->readOne((int) $record['item_id']);
+            $quantity = (int) $record['quantity'];
+            if (!$current || $current['quantity_on_hand'] < $quantity) {
+                $skipped++;
+                continue;
+            }
+
+            $this->item->adjustQuantity((int) $record['item_id'], -$quantity);
+            $this->transaction->markCompleted($id);
+            $approved++;
+        }
+
+        $status = $skipped > 0 ? 'bulk_approve_partial' : 'bulk_approved';
+        header("Location: index.php?module=transactions&action=index&status=$status&count=$approved&skipped=$skipped");
         exit;
     }
 

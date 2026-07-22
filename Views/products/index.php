@@ -9,6 +9,7 @@ $bulkSkipped = (int) ($_GET['skipped'] ?? 0);
 $currentCategory = $_GET['category_id'] ?? '';
 $currentStockStatus = $_GET['stock_status'] ?? '';
 $currentSerial = $_GET['has_serial'] ?? '';
+$currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Products';
 $activeSection = 'inventory';
 $activeSubNav = 'products';
@@ -17,11 +18,12 @@ $count = count($items);
 // Builds a pagination link that keeps the current filters
 function productPageUrl(int $page): string
 {
-    global $currentCategory, $currentStockStatus, $currentSerial;
+    global $currentCategory, $currentStockStatus, $currentSerial, $currentSort;
     return "index.php?module=products&action=index"
         . "&category_id=" . urlencode($currentCategory)
         . "&stock_status=" . urlencode($currentStockStatus)
         . "&has_serial=" . urlencode($currentSerial)
+        . "&sort=" . urlencode($currentSort)
         . "&page=" . $page;
 }
 
@@ -55,7 +57,7 @@ require __DIR__ . '/../partials/header.php';
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             Import
                         </a>
-                        <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&has_serial=<?= urlencode($currentSerial) ?>">
+                        <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&has_serial=<?= urlencode($currentSerial) ?>&sort=<?= urlencode($currentSort) ?>">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             Export
                         </a>
@@ -69,6 +71,7 @@ require __DIR__ . '/../partials/header.php';
         <div id="filterPanel" class="filter-panel <?= ($currentCategory !== '' || $currentStockStatus !== '' || $currentSerial !== '') ? 'open' : '' ?>">
             <form method="GET" action="index.php" class="filter-form">
                 <input type="hidden" name="module" value="products">
+                <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
                 <div>
                     <label>Category</label>
                     <select name="category_id" onchange="this.form.submit()">
@@ -116,6 +119,19 @@ require __DIR__ . '/../partials/header.php';
         <?php elseif ($status === 'bulk_updated'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> moved to the new category.</div>
         <?php endif; ?>
+
+        <div class="sort-bar">
+            <label for="sortSelect">Sort by</label>
+            <select id="sortSelect" onchange='location.href = <?= json_encode(productPageUrl(1)) ?>.replace(/sort=[^&]*/, "sort=" + this.value)'>
+                <option value="newest" <?= $currentSort === 'newest' ? 'selected' : '' ?>>Recently added</option>
+                <option value="oldest" <?= $currentSort === 'oldest' ? 'selected' : '' ?>>Oldest first</option>
+                <option value="name_asc" <?= $currentSort === 'name_asc' ? 'selected' : '' ?>>Name: A–Z</option>
+                <option value="name_desc" <?= $currentSort === 'name_desc' ? 'selected' : '' ?>>Name: Z–A</option>
+                <option value="stock_asc" <?= $currentSort === 'stock_asc' ? 'selected' : '' ?>>Stock: low to high</option>
+                <option value="stock_desc" <?= $currentSort === 'stock_desc' ? 'selected' : '' ?>>Stock: high to low</option>
+                <option value="category_asc" <?= $currentSort === 'category_asc' ? 'selected' : '' ?>>Category: A–Z</option>
+            </select>
+        </div>
 
         <form method="POST" id="bulkForm">
             <div id="bulkBar" class="bulk-bar">

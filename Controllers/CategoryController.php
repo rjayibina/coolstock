@@ -52,7 +52,8 @@ class CategoryController
     public function index(): void
     {
         $productFilter = $_GET['has_products'] ?? null;
-        $categories = $this->category->readAllWithCounts($productFilter);
+        $sort = $_GET['sort'] ?? 'newest';
+        $categories = $this->category->readAllWithCounts($productFilter, $sort);
         require __DIR__ . '/../Views/categories/index.php';
     }
 

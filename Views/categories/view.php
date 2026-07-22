@@ -37,6 +37,7 @@ require __DIR__ . '/../partials/header.php';
                     <tr>
                         <th>Product</th>
                         <th>Unit</th>
+                        <th>Serial No.</th>
                         <th>Stock</th>
                         <th>Status</th>
                     </tr>
@@ -55,6 +56,7 @@ require __DIR__ . '/../partials/header.php';
                             <tr>
                                 <td><strong><?= htmlspecialchars($p['item_name']) ?></strong></td>
                                 <td class="cell-muted"><?= htmlspecialchars($p['unit_of_measure'] ?? '—') ?></td>
+                                <td class="cell-muted"><?= htmlspecialchars($p['serial_number'] ?? '—') ?></td>
                                 <td class="cell-id"><?= (int) $p['quantity_on_hand'] ?> <span class="cell-muted">/ min <?= (int) $p['minimum_stock_level'] ?></span></td>
                                 <td>
                                     <?php if ($isOut): ?>

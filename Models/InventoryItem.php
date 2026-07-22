@@ -63,15 +63,27 @@ class InventoryItem
     /** READ - all items, joined with category name, most recent first.
      *  $categoryId / $stockStatus ('low'|'in_stock') / $hasSerial ('1'|'0') optionally filter the results.
      *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
-    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null, ?int $limit = null, ?int $offset = null): array
+    public const SORT_OPTIONS = [
+        'name_asc' => 'i.item_name ASC',
+        'name_desc' => 'i.item_name DESC',
+        'stock_asc' => 'i.quantity_on_hand ASC',
+        'stock_desc' => 'i.quantity_on_hand DESC',
+        'category_asc' => 'c.category_name ASC',
+        'newest' => 'i.item_id DESC',
+        'oldest' => 'i.item_id ASC',
+    ];
+
+    /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
+    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
         [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $hasSerial);
+        $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
 
         $query = "SELECT i.*, c.category_name
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   WHERE {$where}
-                  ORDER BY i.item_id DESC";
+                  ORDER BY {$orderBy}";
 
         if ($limit !== null && $offset !== null) {
             $query .= " LIMIT :limit OFFSET :offset";

@@ -52,7 +52,17 @@ class Category
 
     /** READ - every category with its product count, most recent first (Categories page card layout) */
     /** $productFilter: 'has' (only categories with 1+ products), 'empty' (only categories with 0), or null (all) */
-    public function readAllWithCounts(?string $productFilter = null): array
+    public const SORT_OPTIONS = [
+        'newest' => 'c.category_id DESC',
+        'oldest' => 'c.category_id ASC',
+        'name_asc' => 'c.category_name ASC',
+        'name_desc' => 'c.category_name DESC',
+        'products_desc' => 'product_count DESC',
+        'products_asc' => 'product_count ASC',
+    ];
+
+    /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
+    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null): array
     {
         $query = "SELECT c.*, COUNT(i.item_id) AS product_count
                   FROM {$this->table} c
@@ -65,7 +75,8 @@ class Category
             $query .= " HAVING product_count = 0";
         }
 
-        $query .= " ORDER BY c.category_id DESC";
+        $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
+        $query .= " ORDER BY {$orderBy}";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll();

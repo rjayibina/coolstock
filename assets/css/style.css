@@ -352,6 +352,28 @@ tbody td {
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover { background: #FAFAFD; }
 .product-row { cursor: pointer; }
+.transaction-row { cursor: pointer; }
+.category-row { cursor: pointer; }
+
+/* ---------- Sort bar (above tables) ---------- */
+.sort-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.sort-bar select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--text-dark);
+    background: #fff;
+}
 
 .cell-muted { color: var(--text-muted); }
 .cell-id { color: var(--text-muted); font-variant-numeric: tabular-nums; }

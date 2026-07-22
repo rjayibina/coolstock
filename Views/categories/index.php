@@ -7,6 +7,7 @@ $status = $_GET['status'] ?? null;
 $bulkCount = (int) ($_GET['count'] ?? 0);
 $bulkSkipped = (int) ($_GET['skipped'] ?? 0);
 $currentHasProducts = $_GET['has_products'] ?? '';
+$currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Categories';
 $activeSection = 'inventory';
 $activeSubNav = 'categories';
@@ -37,6 +38,7 @@ require __DIR__ . '/../partials/header.php';
         <div id="filterPanel" class="filter-panel <?= $currentHasProducts !== '' ? 'open' : '' ?>">
             <form method="GET" action="index.php" class="filter-form">
                 <input type="hidden" name="module" value="categories">
+                <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
                 <div>
                     <label>Products</label>
                     <select name="has_products" onchange="this.form.submit()">
@@ -64,6 +66,18 @@ require __DIR__ . '/../partials/header.php';
         <?php elseif ($status === 'bulk_partial'): ?>
             <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it still has' : 'they still have' ?> products assigned.</div>
         <?php endif; ?>
+
+        <div class="sort-bar">
+            <label for="sortSelect">Sort by</label>
+            <select id="sortSelect" onchange="location.href = 'index.php?module=categories&action=index&has_products=<?= urlencode($currentHasProducts) ?>&sort=' + this.value">
+                <option value="newest" <?= $currentSort === 'newest' ? 'selected' : '' ?>>Recently added</option>
+                <option value="oldest" <?= $currentSort === 'oldest' ? 'selected' : '' ?>>Oldest first</option>
+                <option value="name_asc" <?= $currentSort === 'name_asc' ? 'selected' : '' ?>>Name: A–Z</option>
+                <option value="name_desc" <?= $currentSort === 'name_desc' ? 'selected' : '' ?>>Name: Z–A</option>
+                <option value="products_desc" <?= $currentSort === 'products_desc' ? 'selected' : '' ?>>Most products</option>
+                <option value="products_asc" <?= $currentSort === 'products_asc' ? 'selected' : '' ?>>Fewest products</option>
+            </select>
+        </div>
 
         <form method="POST" id="bulkCategoryForm">
             <div id="bulkBar" class="bulk-bar">

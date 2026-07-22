@@ -92,18 +92,40 @@ class Transaction
         return $stmt->execute();
     }
 
-    /** READ - all transactions, joined with item name, most recent first.
-     *  $itemId / $type / $search optionally filter the results.
-     *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
-    public function readAll(?int $itemId = null, ?string $type = null, ?string $search = null, ?int $limit = null, ?int $offset = null): array
+    /** Marks a pending Item Request as declined (called when warehouse staff reject it).
+     *  Stock was never deducted for a pending request, so declining doesn't touch it either -
+     *  the row just stays as a record of what was asked for and refused. */
+    public function markDeclined(int $id): bool
     {
-        [$where, $params] = $this->buildFilterClause($itemId, $type, $search);
+        $query = "UPDATE {$this->table} SET status = 'declined' WHERE transaction_id = :id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        return $stmt->execute();
+    }
+
+    public const SORT_OPTIONS = [
+        'date_desc' => 't.transaction_id DESC',
+        'date_asc' => 't.transaction_id ASC',
+        'quantity_desc' => 't.quantity DESC',
+        'quantity_asc' => 't.quantity ASC',
+        'product_asc' => 'i.item_name ASC',
+        'product_desc' => 'i.item_name DESC',
+    ];
+
+    /** READ - all transactions, joined with item name.
+     *  $itemId / $type / $search / $dateFrom / $dateTo optionally filter the results.
+     *  $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first).
+     *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
+    public function readAll(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    {
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo);
+        $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
 
         $query = "SELECT t.*, i.item_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
                   WHERE {$where}
-                  ORDER BY t.transaction_id DESC";
+                  ORDER BY {$orderBy}";
 
         if ($limit !== null && $offset !== null) {
             $query .= " LIMIT :limit OFFSET :offset";
@@ -122,9 +144,9 @@ class Transaction
     }
 
     /** Count of transactions matching the same filters as readAll() - for pagination */
-    public function countFiltered(?int $itemId = null, ?string $type = null, ?string $search = null): int
+    public function countFiltered(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null): int
     {
-        [$where, $params] = $this->buildFilterClause($itemId, $type, $search);
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo);
 
         $query = "SELECT COUNT(*) AS total
                   FROM {$this->table} t
@@ -140,7 +162,7 @@ class Transaction
     }
 
     /** Shared WHERE-clause builder for readAll() and countFiltered() so the two never drift apart */
-    private function buildFilterClause(?int $itemId, ?string $type, ?string $search): array
+    private function buildFilterClause(?int $itemId, ?string $type, ?string $search, ?string $dateFrom = null, ?string $dateTo = null): array
     {
         $where = "1=1";
         $params = [];
@@ -156,6 +178,14 @@ class Transaction
         if ($search !== null && trim($search) !== '') {
             $where .= " AND (i.item_name LIKE :search OR t.technician_name LIKE :search OR t.notes LIKE :search)";
             $params[':search'] = '%' . trim($search) . '%';
+        }
+        if ($dateFrom !== null && $dateFrom !== '') {
+            $where .= " AND DATE(t.created_at) >= :date_from";
+            $params[':date_from'] = $dateFrom;
+        }
+        if ($dateTo !== null && $dateTo !== '') {
+            $where .= " AND DATE(t.created_at) <= :date_to";
+            $params[':date_to'] = $dateTo;
         }
 
         return [$where, $params];

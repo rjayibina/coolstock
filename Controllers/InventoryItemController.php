@@ -33,6 +33,7 @@ class InventoryItemController
         $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
         $hasSerial = $_GET['has_serial'] ?? null;
+        $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
         $totalCount = $this->item->countFiltered($categoryId, $stockStatus, $hasSerial);
@@ -40,7 +41,7 @@ class InventoryItemController
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $items = $this->item->readAll($categoryId, $stockStatus, $hasSerial, self::PER_PAGE, $offset);
+        $items = $this->item->readAll($categoryId, $stockStatus, $hasSerial, $sort, self::PER_PAGE, $offset);
         $categories = $this->category->readAll();
 
         $pagination = [
