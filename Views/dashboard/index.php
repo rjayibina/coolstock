@@ -93,8 +93,10 @@ $typeColors = [
                 <thead>
                     <tr>
                         <th>Product</th>
+                        <th>Serial No.</th>
                         <th>On Hand</th>
                         <th>Minimum</th>
+                        <th>Category</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -104,8 +106,10 @@ $typeColors = [
                         <?php foreach ($lowStockItems as $it): ?>
                             <tr>
                                 <td><strong><?= htmlspecialchars($it['item_name']) ?></strong></td>
+                                <td class="cell-id"><?= htmlspecialchars($it['serial_number'] ?? '—') ?></td>
                                 <td class="cell-id"><?= (int) $it['quantity_on_hand'] ?></td>
                                 <td class="cell-id"><?= (int) $it['minimum_stock_level'] ?></td>
+                                <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -120,6 +124,7 @@ $typeColors = [
                     <tr>
                         <th>Product</th>
                         <th>Type</th>
+                        <th>Technician</th>
                         <th>Quantity</th>
                         <th>Date</th>
                     </tr>
@@ -132,6 +137,13 @@ $typeColors = [
                             <tr>
                                 <td><strong><?= htmlspecialchars($t['item_name'] ?? 'Unknown product') ?></strong></td>
                                 <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
+                                <td class="cell-muted">
+                                    <?php if ($t['source'] === 'auto'): ?>
+                                        <span style="font-style:italic;">System</span>
+                                    <?php else: ?>
+                                        <?= htmlspecialchars($t['technician_name'] ?? '—') ?>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="cell-id"><?= (int) $t['quantity'] ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars($t['created_at']) ?></td>
                             </tr>
