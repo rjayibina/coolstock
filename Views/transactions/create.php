@@ -55,6 +55,10 @@ $old = $_POST ?: array_filter(['item_id' => $prefillItemId, 'transaction_type' =
                 <input type="number" id="quantity" name="quantity" min="1" step="1"
                        value="<?= htmlspecialchars($old['quantity'] ?? '1') ?>" required>
 
+                <label for="transaction_date">Transaction Date</label>
+                <input type="date" id="transaction_date" name="transaction_date"
+                       value="<?= htmlspecialchars($old['transaction_date'] ?? date('Y-m-d')) ?>" required>
+
                 <label for="technician_name">Technician Name <span style="font-weight:400;color:var(--text-muted);">(required for requests, borrows, and returns)</span></label>
                 <input type="text" id="technician_name" name="technician_name"
                        placeholder="e.g. Juan Dela Cruz"

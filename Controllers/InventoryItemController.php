@@ -221,10 +221,6 @@ class InventoryItemController
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
         if ($id > 0) {
-            if ($this->item->hasTransactions($id)) {
-                header("Location: index.php?module=products&action=index&status=has_transactions");
-                exit;
-            }
             $existing = $this->item->readOne($id);
             if ($existing && !empty($existing['image_path'])) {
                 $this->deleteImageFile($existing['image_path']);

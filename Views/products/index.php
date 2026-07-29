@@ -45,10 +45,10 @@ require __DIR__ . '/../partials/header.php';
                 </button>
 
                 <div class="split-btn">
-                    <a href="index.php?module=products&action=create" class="btn btn-primary split-btn-main">
+                    <button type="button" class="btn btn-primary split-btn-main" onclick="openAddProductModal()">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Add Product
-                    </a>
+                    </button>
                     <button type="button" class="btn btn-primary split-btn-toggle" onclick="document.getElementById('addProductMenu').classList.toggle('open')">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
@@ -110,12 +110,11 @@ require __DIR__ . '/../partials/header.php';
             <div class="alert alert-success">Product updated successfully.</div>
         <?php elseif ($status === 'deleted'): ?>
             <div class="alert alert-success">Product deleted successfully.</div>
-        <?php elseif ($status === 'has_transactions'): ?>
-            <div class="alert alert-warning">This product can't be deleted because it has transaction history. Delete its transactions first if you really need to remove it.</div>
+        <?php elseif ($status === 'stock_updated'): ?>
+            <?php $stockType = $_GET['type'] ?? ''; ?>
+            <div class="alert alert-success"><?= $stockType === 'stock_out' ? 'Stock removed successfully.' : 'Stock added successfully.' ?></div>
         <?php elseif ($status === 'bulk_deleted'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> deleted.</div>
-        <?php elseif ($status === 'bulk_partial'): ?>
-            <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it has' : 'they have' ?> transaction history.</div>
         <?php elseif ($status === 'bulk_updated'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> moved to the new category.</div>
         <?php endif; ?>
@@ -143,7 +142,7 @@ require __DIR__ . '/../partials/header.php';
                 </select>
                 <button type="submit" formaction="index.php?module=products&action=bulkUpdateCategory" class="btn btn-secondary btn-sm">Change Category</button>
                 <button type="submit" formaction="index.php?module=products&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected products? This cannot be undone.');">Delete Selected</button>
+                        onclick="return confirm('Delete the selected products? This will also delete their stock-in/stock-out history. This cannot be undone.');">Delete Selected</button>
             </div>
 
             <div class="table-card">
@@ -198,12 +197,10 @@ require __DIR__ . '/../partials/header.php';
                                         <?php endif; ?>
                                     </td>
                                     <td class="actions">
-                                        <a href="index.php?module=transactions&action=create&item_id=<?= $it['item_id'] ?>&type=stock_in" class="btn btn-sm" style="background:var(--success-bg);color:var(--success);" title="Stock in">+</a>
-                                        <a href="index.php?module=transactions&action=create&item_id=<?= $it['item_id'] ?>&type=stock_out" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);" title="Stock out">&minus;</a>
-                                        <a href="index.php?module=products&action=edit&id=<?= $it['item_id'] ?>" class="btn btn-edit btn-sm">Edit</a>
-                                        <a href="index.php?module=products&action=delete&id=<?= $it['item_id'] ?>"
-                                           class="btn btn-danger btn-sm"
-                                           onclick="return confirm('Delete this product? This cannot be undone.');">Delete</a>
+                                        <button type="button" class="btn btn-sm" style="background:var(--success-bg);color:var(--success);" title="Stock in" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_in')">+</button>
+                                        <button type="button" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);" title="Stock out" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_out')">&minus;</button>
+                                        <button type="button" class="btn btn-edit btn-sm" onclick="openEditProductModal(<?= $it['item_id'] ?>)">Edit</button>
+                                        <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteProductModal(<?= $it['item_id'] ?>)">Delete</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -258,9 +255,164 @@ require __DIR__ . '/../partials/header.php';
                     </table>
 
                     <div class="form-actions" style="margin-top:18px;">
-                        <a id="vpm-edit-link" href="#" class="btn btn-primary btn-sm">Edit Product</a>
+                        <button type="button" class="btn btn-primary btn-sm" id="vpm-edit-link" onclick="closeModal('viewProductModal'); openEditProductModal(this.dataset.itemId)">Edit Product</button>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('viewProductModal').classList.remove('open')">Close</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="addProductModal" class="modal-overlay" onclick="if(event.target===this) closeModal('addProductModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3>Add Product</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('addProductModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="index.php?module=products&action=create" enctype="multipart/form-data">
+                        <label for="ap_product_image">Product Image</label>
+                        <input type="file" id="ap_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp">
+
+                        <?php
+                        $selectedCategoryId = '';
+                        $selectedCategoryName = '';
+                        require __DIR__ . '/../partials/category-combobox.php';
+                        ?>
+
+                        <label for="ap_item_name">Product Name</label>
+                        <input type="text" id="ap_item_name" name="item_name"
+                               placeholder="e.g. R410A Refrigerant Tank" required>
+
+                        <label for="ap_description">Description</label>
+                        <textarea id="ap_description" name="description"
+                                  placeholder="Optional notes about this product"></textarea>
+
+                        <label for="ap_unit_of_measure">Unit of Measure</label>
+                        <input type="text" id="ap_unit_of_measure" name="unit_of_measure"
+                               placeholder="e.g. pcs, kg, box">
+
+                        <label for="ap_quantity_on_hand">Quantity on Hand</label>
+                        <input type="number" id="ap_quantity_on_hand" name="quantity_on_hand" min="0" step="1" value="0" required>
+
+                        <label for="ap_minimum_stock_level">Minimum Stock Level</label>
+                        <input type="number" id="ap_minimum_stock_level" name="minimum_stock_level" min="0" step="1" value="0" required>
+
+                        <label for="ap_serial_number">Serial Number <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <input type="text" id="ap_serial_number" name="serial_number"
+                               placeholder="e.g. SN-2026-00123">
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Product</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('addProductModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="editProductModal" class="modal-overlay" onclick="if(event.target===this) closeModal('editProductModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3>Edit Product</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('editProductModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" id="editProductForm" action="index.php?module=products&action=edit" enctype="multipart/form-data">
+                        <input type="hidden" name="item_id" id="ep_item_id" value="">
+
+                        <label>Product Image</label>
+                        <div id="ep_current_image_wrap" style="display:none;align-items:center;gap:12px;margin-bottom:10px;">
+                            <img id="ep_current_image" src="" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+                            <label style="display:flex;align-items:center;gap:6px;font-weight:500;font-size:13px;color:var(--text-muted);margin:0;">
+                                <input type="checkbox" name="remove_image" value="1" style="width:auto;">
+                                Remove this image
+                            </label>
+                        </div>
+                        <input type="file" id="ep_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp">
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave empty to keep the current image, or choose a new file to replace it.</div>
+
+                        <label for="ep_category_id">Category <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ep_category_id" name="category_id">
+                            <option value="">Uncategorized</option>
+                            <?php foreach ($categories as $cat): ?>
+                                <option value="<?= $cat['category_id'] ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="ep_item_name">Product Name</label>
+                        <input type="text" id="ep_item_name" name="item_name" required>
+
+                        <label for="ep_description">Description</label>
+                        <textarea id="ep_description" name="description"></textarea>
+
+                        <label for="ep_unit_of_measure">Unit of Measure</label>
+                        <input type="text" id="ep_unit_of_measure" name="unit_of_measure">
+
+                        <label for="ep_quantity_on_hand">Quantity on Hand</label>
+                        <input type="number" id="ep_quantity_on_hand" name="quantity_on_hand" min="0" step="1" required>
+
+                        <label for="ep_minimum_stock_level">Minimum Stock Level</label>
+                        <input type="number" id="ep_minimum_stock_level" name="minimum_stock_level" min="0" step="1" required>
+
+                        <label for="ep_serial_number">Serial Number <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <input type="text" id="ep_serial_number" name="serial_number">
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Update Product</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('editProductModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="deleteProductModal" class="modal-overlay" onclick="if(event.target===this) closeModal('deleteProductModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Delete Product</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('deleteProductModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Delete <strong id="dp_name"></strong>? This will also delete all of its stock-in/stock-out history. This cannot be undone.</p>
+                    <div class="form-actions">
+                        <a id="dp_confirm_link" href="#" class="btn btn-danger-solid">Delete</a>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('deleteProductModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="stockModal" class="modal-overlay" onclick="if(event.target===this) closeModal('stockModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3 id="sm_title">Add Stock</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('stockModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" id="stockForm" action="index.php?module=transactions&action=create">
+                        <input type="hidden" name="item_id" id="sm_item_id" value="">
+                        <input type="hidden" name="transaction_type" id="sm_transaction_type" value="stock_in">
+                        <input type="hidden" name="redirect_to" value="products">
+
+                        <div class="stock-tabs">
+                            <button type="button" class="stock-tab stock-tab-in" id="sm_tab_in" onclick="setStockMode('stock_in')">+ Add Stock</button>
+                            <button type="button" class="stock-tab stock-tab-out" id="sm_tab_out" onclick="setStockMode('stock_out')">&minus; Remove Stock</button>
+                        </div>
+
+                        <label for="sm_quantity">Quantity</label>
+                        <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity" required>
+
+                        <label for="sm_transaction_date">Transaction Date</label>
+                        <input type="date" id="sm_transaction_date" name="transaction_date" required>
+
+                        <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success" id="sm_submit">+ Add Stock</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('stockModal')">Back</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -315,7 +467,7 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vpm-stock').textContent = p.quantity_on_hand;
             document.getElementById('vpm-min').textContent = p.minimum_stock_level;
             document.getElementById('vpm-serial').textContent = p.serial_number || '—';
-            document.getElementById('vpm-edit-link').href = 'index.php?module=products&action=edit&id=' + id;
+            document.getElementById('vpm-edit-link').dataset.itemId = id;
 
             const statusEl = document.getElementById('vpm-status');
             const qty = parseInt(p.quantity_on_hand);
@@ -358,6 +510,87 @@ require __DIR__ . '/../partials/header.php';
             });
         }
 
+        function closeModal(id) {
+            document.getElementById(id)?.classList.remove('open');
+        }
+
+        function openAddProductModal() {
+            document.getElementById('addProductModal').classList.add('open');
+        }
+
+        function openEditProductModal(id) {
+            const p = productsData[id];
+            if (!p) return;
+
+            document.getElementById('ep_item_id').value = id;
+            document.getElementById('editProductForm').action = 'index.php?module=products&action=edit&id=' + id;
+            document.getElementById('ep_item_name').value = p.item_name || '';
+            document.getElementById('ep_description').value = p.description || '';
+            document.getElementById('ep_unit_of_measure').value = p.unit_of_measure || '';
+            document.getElementById('ep_quantity_on_hand').value = p.quantity_on_hand;
+            document.getElementById('ep_minimum_stock_level').value = p.minimum_stock_level;
+            document.getElementById('ep_serial_number').value = p.serial_number || '';
+            document.getElementById('ep_category_id').value = p.category_id || '';
+            document.getElementById('ep_product_image').value = '';
+
+            const removeCheckbox = document.querySelector('#editProductModal input[name="remove_image"]');
+            if (removeCheckbox) removeCheckbox.checked = false;
+
+            const imgWrap = document.getElementById('ep_current_image_wrap');
+            const img = document.getElementById('ep_current_image');
+            if (p.image_path) {
+                img.src = p.image_path;
+                imgWrap.style.display = 'flex';
+            } else {
+                img.src = '';
+                imgWrap.style.display = 'none';
+            }
+
+            document.getElementById('editProductModal').classList.add('open');
+        }
+
+        function openDeleteProductModal(id) {
+            const p = productsData[id];
+            if (!p) return;
+
+            document.getElementById('dp_name').textContent = p.item_name;
+            document.getElementById('dp_confirm_link').href = 'index.php?module=products&action=delete&id=' + id;
+            document.getElementById('deleteProductModal').classList.add('open');
+        }
+
+        function openStockModal(id, mode) {
+            const p = productsData[id];
+            if (!p) return;
+
+            document.getElementById('sm_item_id').value = id;
+            document.getElementById('sm_quantity').value = '';
+            document.getElementById('sm_notes').value = '';
+            document.getElementById('sm_transaction_date').value = new Date().toISOString().slice(0, 10);
+            setStockMode(mode);
+            document.getElementById('stockModal').classList.add('open');
+        }
+
+        function setStockMode(mode) {
+            const itemId = document.getElementById('sm_item_id').value;
+            const p = productsData[itemId];
+            const name = p ? p.item_name : '';
+
+            document.getElementById('sm_transaction_type').value = mode;
+            document.getElementById('sm_title').textContent = (mode === 'stock_in' ? 'Add Stock' : 'Remove Stock') + (name ? ': ' + name : '');
+
+            document.getElementById('sm_tab_in').classList.toggle('active', mode === 'stock_in');
+            document.getElementById('sm_tab_out').classList.toggle('active', mode === 'stock_out');
+
+            const submitBtn = document.getElementById('sm_submit');
+            if (mode === 'stock_in') {
+                submitBtn.textContent = '+ Add Stock';
+                submitBtn.className = 'btn btn-success';
+            } else {
+                submitBtn.textContent = '\u2212 Remove Stock';
+                submitBtn.className = 'btn btn-danger-solid';
+            }
+        }
+
         function toggleAllProducts(source) {
             document.querySelectorAll('.product-check').forEach(cb => cb.checked = source.checked);
             updateBulkBar();
@@ -385,6 +618,10 @@ require __DIR__ . '/../partials/header.php';
                 document.getElementById('addProductMenu')?.classList.remove('open');
                 document.getElementById('helpModal')?.classList.remove('open');
                 document.getElementById('viewProductModal')?.classList.remove('open');
+                document.getElementById('addProductModal')?.classList.remove('open');
+                document.getElementById('editProductModal')?.classList.remove('open');
+                document.getElementById('deleteProductModal')?.classList.remove('open');
+                document.getElementById('stockModal')?.classList.remove('open');
             }
         });
         </script>

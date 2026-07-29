@@ -21,6 +21,10 @@ class Transaction
     public ?int $item_id = null;
     public ?string $transaction_type = null;
     public ?int $quantity = null;
+    // The date the stock movement actually happened (defaults to today if
+    // not supplied). Separate from created_at, which is just the audit
+    // timestamp of when the row was logged. See migration_transaction_date.sql.
+    public ?string $transaction_date = null;
     // TODO: once the User Access and Roles Module exists, replace this free-text
     // field with a technician_id FK into a users/technicians table.
     public ?string $technician_name = null;
@@ -66,15 +70,19 @@ class Transaction
     /** CREATE - insert a new transaction record */
     public function create(): bool
     {
+        // Defaults to today if the caller didn't set one explicitly
+        $this->transaction_date = $this->transaction_date ?: date('Y-m-d');
+
         $query = "INSERT INTO {$this->table}
-                    (item_id, transaction_type, quantity, technician_name, notes, source, status)
+                    (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status)
                   VALUES
-                    (:item_id, :transaction_type, :quantity, :technician_name, :notes, :source, :status)";
+                    (:item_id, :transaction_type, :quantity, :transaction_date, :technician_name, :notes, :source, :status)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
         $stmt->bindParam(':transaction_type', $this->transaction_type);
         $stmt->bindParam(':quantity', $this->quantity, PDO::PARAM_INT);
+        $stmt->bindParam(':transaction_date', $this->transaction_date);
         $stmt->bindParam(':technician_name', $this->technician_name);
         $stmt->bindParam(':notes', $this->notes);
         $stmt->bindParam(':source', $this->source);

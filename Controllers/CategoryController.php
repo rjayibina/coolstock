@@ -57,23 +57,6 @@ class CategoryController
         require __DIR__ . '/../Views/categories/index.php';
     }
 
-    /** View a single category's details + the products in it */
-    public function view(): void
-    {
-        $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-        $category = $this->category->readOne($id);
-
-        if (!$category) {
-            header("Location: index.php?module=categories&action=index");
-            exit;
-        }
-
-        $itemModel = new InventoryItem();
-        $products = $itemModel->readAllByCategory($id);
-
-        require __DIR__ . '/../Views/categories/view.php';
-    }
-
     /** Show + handle the "create category" form */
     public function create(): void
     {

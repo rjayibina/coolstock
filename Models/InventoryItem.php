@@ -195,24 +195,19 @@ class InventoryItem
         return $stmt->execute();
     }
 
-    /** DELETE - remove an item by id */
+    /** DELETE - remove an item by id, along with its transaction history.
+     *  The transactions table's item_id FK is ON DELETE RESTRICT, so its rows
+     *  for this item must go first or the DELETE below would fail. */
     public function delete(int $id): bool
     {
+        $stmt = $this->conn->prepare("DELETE FROM transactions WHERE item_id = :id");
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+
         $query = "DELETE FROM {$this->table} WHERE item_id = :id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
-    }
-
-    /** Helper - check whether a product has transaction history attached
-     *  (prevents violating the FK constraint on transactions) */
-    public function hasTransactions(int $id): bool
-    {
-        $query = "SELECT COUNT(*) AS total FROM transactions WHERE item_id = :id";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-        $stmt->execute();
-        return (int) $stmt->fetch()['total'] > 0;
     }
 
     /** Adds (or subtracts, with a negative delta) stock for an item. Used by Transaction. */
@@ -237,23 +232,17 @@ class InventoryItem
         return $stmt->fetchAll();
     }
 
-    /** Bulk delete - returns the number of rows actually deleted */
-    /** Bulk delete - skips any product that has transaction history, returns [deleted, skipped] ids */
+    /** Bulk delete - deletes each product (and its transaction history), returns the deleted ids */
     public function bulkDelete(array $ids): array
     {
         $deleted = [];
-        $skipped = [];
         foreach ($ids as $id) {
             $id = (int) $id;
-            if ($this->hasTransactions($id)) {
-                $skipped[] = $id;
-                continue;
-            }
             if ($this->delete($id)) {
                 $deleted[] = $id;
             }
         }
-        return ['deleted' => $deleted, 'skipped' => $skipped];
+        return ['deleted' => $deleted, 'skipped' => []];
     }
 
     /** Bulk-reassign category for a set of products - returns the number of rows updated */

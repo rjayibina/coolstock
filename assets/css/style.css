@@ -242,6 +242,12 @@ body {
 .btn-danger { background: var(--danger-bg); color: var(--danger); }
 .btn-danger:hover { background: #fbdada; }
 
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { background: #128A3E; }
+
+.btn-danger-solid { background: var(--danger); color: #fff; }
+.btn-danger-solid:hover { background: #B91C1C; }
+
 .btn-edit { background: #EEF0FE; color: var(--accent); }
 .btn-edit:hover { background: #E1E4FC; }
 
@@ -418,6 +424,15 @@ form label {
 }
 
 form input[type="text"],
+form input[type="number"],
+form input[type="date"],
+form input[type="email"],
+form input[type="password"],
+form input[type="search"],
+form input[type="tel"],
+form input[type="url"],
+form input[type="file"],
+form select,
 form textarea {
     width: 100%;
     padding: 10px 13px;
@@ -427,15 +442,26 @@ form textarea {
     margin-bottom: 18px;
     font-family: inherit;
     color: var(--text-dark);
+    background: var(--card-bg);
 }
 
 form input[type="text"]:focus,
+form input[type="number"]:focus,
+form input[type="date"]:focus,
+form input[type="email"]:focus,
+form input[type="password"]:focus,
+form input[type="search"]:focus,
+form input[type="tel"]:focus,
+form input[type="url"]:focus,
+form input[type="file"]:focus,
+form select:focus,
 form textarea:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px rgba(76, 95, 213, 0.12);
 }
 
+form select { cursor: pointer; }
 form textarea { resize: vertical; min-height: 90px; }
 
 .form-actions { display: flex; gap: 10px; margin-top: 6px; }
@@ -825,6 +851,34 @@ form textarea { resize: vertical; min-height: 90px; }
 .modal-body h4 { font-size: 13px; margin: 18px 0 8px 0; color: var(--text-dark); }
 .modal-body ul, .modal-body ol { margin: 0 0 4px 0; padding-left: 20px; }
 .modal-body li { margin-bottom: 6px; }
+
+/* ---------- Stock In/Out modal tab toggle ---------- */
+.stock-tabs {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 18px;
+}
+
+.stock-tab {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    background: var(--card-bg);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-family: inherit;
+}
+
+.stock-tab + .stock-tab { border-left: 1px solid var(--border); }
+.stock-tab-in.active { background: var(--success-bg); color: var(--success); }
+.stock-tab-out.active { background: var(--danger-bg); color: var(--danger); }
+
+/* ---------- Delete confirmation modal ---------- */
+.modal-dialog-sm { max-width: 400px; }
 
 /* ---------- Pagination ---------- */
 .pagination-bar {

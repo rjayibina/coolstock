@@ -86,6 +86,7 @@ class TransactionController
                     $this->transaction->item_id = $itemId;
                     $this->transaction->transaction_type = $type;
                     $this->transaction->quantity = $qty;
+                    $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
                     $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
                     $this->transaction->notes = trim($_POST['notes'] ?? '');
                     $this->transaction->status = $isRequest ? 'pending' : 'completed';
@@ -95,6 +96,14 @@ class TransactionController
                             $this->item->adjustQuantity($itemId, $delta);
                         }
                         $status = $isRequest ? 'requested' : 'created';
+
+                        // The Stock In/Out modal on the Products page sets this
+                        // so it lands back on Products instead of Transactions.
+                        if (($_POST['redirect_to'] ?? '') === 'products' && !$isRequest) {
+                            header("Location: index.php?module=products&action=index&status=stock_updated&type=$type");
+                            exit;
+                        }
+
                         header("Location: index.php?module=transactions&action=index&status=$status");
                         exit;
                     }

@@ -28,10 +28,10 @@ require __DIR__ . '/../partials/header.php';
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                     Filter
                 </button>
-                <a href="index.php?module=categories&action=create" class="btn btn-primary">
+                <button type="button" class="btn btn-primary" onclick="openAddCategoryModal()">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add Category
-                </a>
+                </button>
             </div>
         </div>
 
@@ -112,11 +112,8 @@ require __DIR__ . '/../partials/header.php';
                                     <td class="cell-id"><?= (int) $cat['product_count'] ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars($cat['created_at']) ?></td>
                                     <td class="actions">
-                                        <a href="index.php?module=categories&action=view&id=<?= $cat['category_id'] ?>" class="btn btn-edit btn-sm">View</a>
-                                        <a href="index.php?module=categories&action=edit&id=<?= $cat['category_id'] ?>" class="btn btn-edit btn-sm">Edit</a>
-                                        <a href="index.php?module=categories&action=delete&id=<?= $cat['category_id'] ?>"
-                                           class="btn btn-danger btn-sm"
-                                           onclick="return confirm('Delete this category? This cannot be undone.');">Delete</a>
+                                        <button type="button" class="btn btn-edit btn-sm" onclick="openEditCategoryModal(<?= $cat['category_id'] ?>)">Edit</button>
+                                        <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteCategoryModal(<?= $cat['category_id'] ?>)">Delete</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -126,7 +123,104 @@ require __DIR__ . '/../partials/header.php';
             </div>
         </form>
 
+        <div id="addCategoryModal" class="modal-overlay" onclick="if(event.target===this) closeModal('addCategoryModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3>Add Category</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('addCategoryModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="index.php?module=categories&action=create">
+                        <label for="ac_category_name">Category Name</label>
+                        <input type="text" id="ac_category_name" name="category_name"
+                               placeholder="e.g. Refrigeration Parts" required>
+
+                        <label for="ac_category_description">Description</label>
+                        <textarea id="ac_category_description" name="category_description"
+                                  placeholder="Optional notes about what belongs in this category"></textarea>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Category</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('addCategoryModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="editCategoryModal" class="modal-overlay" onclick="if(event.target===this) closeModal('editCategoryModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3>Edit Category</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('editCategoryModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" id="editCategoryForm" action="index.php?module=categories&action=edit">
+                        <input type="hidden" name="category_id" id="ec_category_id" value="">
+
+                        <label for="ec_category_name">Category Name</label>
+                        <input type="text" id="ec_category_name" name="category_name" required>
+
+                        <label for="ec_category_description">Description</label>
+                        <textarea id="ec_category_description" name="category_description"></textarea>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Update Category</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('editCategoryModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="deleteCategoryModal" class="modal-overlay" onclick="if(event.target===this) closeModal('deleteCategoryModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Delete Category</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('deleteCategoryModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Delete <strong id="dc_name"></strong>? This cannot be undone.</p>
+                    <div class="form-actions">
+                        <a id="dc_confirm_link" href="#" class="btn btn-danger-solid">Delete</a>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('deleteCategoryModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
+        const categoriesData = <?= json_encode(array_column($categories, null, 'category_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+
+        function closeModal(id) {
+            document.getElementById(id)?.classList.remove('open');
+        }
+
+        function openAddCategoryModal() {
+            document.getElementById('addCategoryModal').classList.add('open');
+        }
+
+        function openEditCategoryModal(id) {
+            const c = categoriesData[id];
+            if (!c) return;
+
+            document.getElementById('ec_category_id').value = id;
+            document.getElementById('editCategoryForm').action = 'index.php?module=categories&action=edit&id=' + id;
+            document.getElementById('ec_category_name').value = c.category_name || '';
+            document.getElementById('ec_category_description').value = c.category_description || '';
+
+            document.getElementById('editCategoryModal').classList.add('open');
+        }
+
+        function openDeleteCategoryModal(id) {
+            const c = categoriesData[id];
+            if (!c) return;
+
+            document.getElementById('dc_name').textContent = c.category_name;
+            document.getElementById('dc_confirm_link').href = 'index.php?module=categories&action=delete&id=' + id;
+            document.getElementById('deleteCategoryModal').classList.add('open');
+        }
+
         function filterCategories() {
             const q = document.getElementById('categorySearch').value.toLowerCase();
             document.querySelectorAll('#categoryTable tbody tr').forEach(row => {
@@ -150,5 +244,13 @@ require __DIR__ . '/../partials/header.php';
             const selectAll = document.getElementById('selectAllCategories');
             if (selectAll) selectAll.checked = checked > 0 && checked === all;
         }
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                document.getElementById('addCategoryModal')?.classList.remove('open');
+                document.getElementById('editCategoryModal')?.classList.remove('open');
+                document.getElementById('deleteCategoryModal')?.classList.remove('open');
+            }
+        });
         </script>
 <?php require __DIR__ . '/../partials/footer.php'; ?>
