@@ -126,8 +126,10 @@ class InventoryItem
             $where .= " AND i.category_id = :category_id";
             $params[':category_id'] = (int) $categoryId;
         }
-        if ($stockStatus === 'low') {
-            $where .= " AND i.quantity_on_hand <= i.minimum_stock_level";
+        if ($stockStatus === 'out_of_stock') {
+            $where .= " AND i.quantity_on_hand = 0";
+        } elseif ($stockStatus === 'low') {
+            $where .= " AND i.quantity_on_hand > 0 AND i.quantity_on_hand <= i.minimum_stock_level";
         } elseif ($stockStatus === 'in_stock') {
             $where .= " AND i.quantity_on_hand > i.minimum_stock_level";
         }
@@ -195,15 +197,12 @@ class InventoryItem
         return $stmt->execute();
     }
 
-    /** DELETE - remove an item by id, along with its transaction history.
-     *  The transactions table's item_id FK is ON DELETE RESTRICT, so its rows
-     *  for this item must go first or the DELETE below would fail. */
+    /** DELETE - remove an item by id. Its past transactions are kept (not
+     *  deleted) for the Logs/audit trail - the FK sets their item_id to
+     *  NULL instead of restricting or cascading. See
+     *  migration_transactions_survive_product_delete.sql. */
     public function delete(int $id): bool
     {
-        $stmt = $this->conn->prepare("DELETE FROM transactions WHERE item_id = :id");
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-        $stmt->execute();
-
         $query = "DELETE FROM {$this->table} WHERE item_id = :id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
@@ -232,7 +231,7 @@ class InventoryItem
         return $stmt->fetchAll();
     }
 
-    /** Bulk delete - deletes each product (and its transaction history), returns the deleted ids */
+    /** Bulk delete - deletes each product (their past transactions are kept, not deleted), returns the deleted ids */
     public function bulkDelete(array $ids): array
     {
         $deleted = [];

@@ -88,6 +88,7 @@ require __DIR__ . '/../partials/header.php';
                         <option value="">All Statuses</option>
                         <option value="in_stock" <?= $currentStockStatus === 'in_stock' ? 'selected' : '' ?>>In Stock</option>
                         <option value="low" <?= $currentStockStatus === 'low' ? 'selected' : '' ?>>Low Stock</option>
+                        <option value="out_of_stock" <?= $currentStockStatus === 'out_of_stock' ? 'selected' : '' ?>>Out of Stock</option>
                     </select>
                 </div>
                 <div>
@@ -142,7 +143,7 @@ require __DIR__ . '/../partials/header.php';
                 </select>
                 <button type="submit" formaction="index.php?module=products&action=bulkUpdateCategory" class="btn btn-secondary btn-sm">Change Category</button>
                 <button type="submit" formaction="index.php?module=products&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected products? This will also delete their stock-in/stock-out history. This cannot be undone.');">Delete Selected</button>
+                        onclick="return confirm('Delete the selected products? This cannot be undone.');">Delete Selected</button>
             </div>
 
             <div class="table-card">
@@ -255,7 +256,6 @@ require __DIR__ . '/../partials/header.php';
                     </table>
 
                     <div class="form-actions" style="margin-top:18px;">
-                        <button type="button" class="btn btn-primary btn-sm" id="vpm-edit-link" onclick="closeModal('viewProductModal'); openEditProductModal(this.dataset.itemId)">Edit Product</button>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('viewProductModal').classList.remove('open')">Close</button>
                     </div>
                 </div>
@@ -373,7 +373,7 @@ require __DIR__ . '/../partials/header.php';
                     <button type="button" class="modal-close" onclick="closeModal('deleteProductModal')">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p>Delete <strong id="dp_name"></strong>? This will also delete all of its stock-in/stock-out history. This cannot be undone.</p>
+                    <p>Delete <strong id="dp_name"></strong>? This cannot be undone.</p>
                     <div class="form-actions">
                         <a id="dp_confirm_link" href="#" class="btn btn-danger-solid">Delete</a>
                         <button type="button" class="btn btn-secondary" onclick="closeModal('deleteProductModal')">Cancel</button>
@@ -403,7 +403,9 @@ require __DIR__ . '/../partials/header.php';
                         <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity" required>
 
                         <label for="sm_transaction_date">Transaction Date</label>
-                        <input type="date" id="sm_transaction_date" name="transaction_date" required>
+                        <input type="date" id="sm_transaction_date" name="transaction_date" readonly
+                               onkeydown="return false" style="background: var(--bg-subtle, #F5F6FB); color: var(--text-muted); cursor: not-allowed;" required>
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Stock movements are always logged with today's date.</div>
 
                         <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
                         <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
@@ -467,7 +469,6 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vpm-stock').textContent = p.quantity_on_hand;
             document.getElementById('vpm-min').textContent = p.minimum_stock_level;
             document.getElementById('vpm-serial').textContent = p.serial_number || '—';
-            document.getElementById('vpm-edit-link').dataset.itemId = id;
 
             const statusEl = document.getElementById('vpm-status');
             const qty = parseInt(p.quantity_on_hand);

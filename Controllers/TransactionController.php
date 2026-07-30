@@ -86,7 +86,13 @@ class TransactionController
                     $this->transaction->item_id = $itemId;
                     $this->transaction->transaction_type = $type;
                     $this->transaction->quantity = $qty;
-                    $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+                    // Stock In/Out must always be logged as happening today - the
+                    // modal's date field is readonly for the same reason. Item
+                    // Request/Borrow/Return still allow picking the date, since
+                    // those come from the standalone Log Transaction page.
+                    $this->transaction->transaction_date = in_array($type, ['stock_in', 'stock_out'], true)
+                        ? date('Y-m-d')
+                        : (trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d'));
                     $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
                     $this->transaction->notes = trim($_POST['notes'] ?? '');
                     $this->transaction->status = $isRequest ? 'pending' : 'completed';
