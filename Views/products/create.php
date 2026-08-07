@@ -56,6 +56,11 @@ $old = $_POST ?? [];
                        placeholder="e.g. pcs, kg, box"
                        value="<?= htmlspecialchars($old['unit_of_measure'] ?? '') ?>">
 
+                <label for="brand">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                <input type="text" id="brand" name="brand"
+                       placeholder="e.g. Daikin, Carrier"
+                       value="<?= htmlspecialchars($old['brand'] ?? '') ?>">
+
                 <label for="quantity_on_hand">Quantity on Hand</label>
                 <input type="number" id="quantity_on_hand" name="quantity_on_hand" min="0" step="1"
                        value="<?= htmlspecialchars($old['quantity_on_hand'] ?? '0') ?>" required>
@@ -63,11 +68,6 @@ $old = $_POST ?? [];
                 <label for="minimum_stock_level">Minimum Stock Level</label>
                 <input type="number" id="minimum_stock_level" name="minimum_stock_level" min="0" step="1"
                        value="<?= htmlspecialchars($old['minimum_stock_level'] ?? '0') ?>" required>
-
-                <label for="serial_number">Serial Number <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                <input type="text" id="serial_number" name="serial_number"
-                       placeholder="e.g. SN-2026-00123"
-                       value="<?= htmlspecialchars($old['serial_number'] ?? '') ?>">
 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Product</button>

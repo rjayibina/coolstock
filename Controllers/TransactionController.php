@@ -77,15 +77,19 @@ class TransactionController
                 $delta = Transaction::stockDelta($type, $qty);
 
                 $current = $this->item->readOne($itemId);
+                $serialNumber = trim($_POST['serial_number'] ?? '');
 
                 // Item Requests don't touch stock at creation time - the
                 // sufficiency check happens later, when the request is approved.
                 if (!$isRequest && $delta < 0 && $current && ($current['quantity_on_hand'] + $delta) < 0) {
                     $error = "Not enough stock: only {$current['quantity_on_hand']} {$current['unit_of_measure']} available.";
+                } elseif ($type === 'stock_out' && $current && !empty($current['requires_serial']) && $serialNumber === '') {
+                    $error = "Serial number is required to stock out this product.";
                 } else {
                     $this->transaction->item_id = $itemId;
                     $this->transaction->transaction_type = $type;
                     $this->transaction->quantity = $qty;
+                    $this->transaction->serial_number = $type === 'stock_out' ? ($serialNumber ?: null) : null;
                     // Stock In/Out must always be logged as happening today - the
                     // modal's date field is readonly for the same reason. Item
                     // Request/Borrow/Return still allow picking the date, since
@@ -167,64 +171,6 @@ class TransactionController
         }
 
         header("Location: index.php?module=transactions&action=index&status=approve_invalid");
-        exit;
-    }
-
-    /** Delete a transaction and reverse its stock effect. Auto-generated
-     *  transactions (product creation / direct edits) can't be deleted here -
-     *  they're a record of something that already happened elsewhere. */
-    public function delete(): void
-    {
-        $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-
-        if ($id > 0) {
-            $record = $this->transaction->readOne($id);
-            if ($record && $record['source'] === 'auto') {
-                header("Location: index.php?module=transactions&action=index&status=auto_locked");
-                exit;
-            }
-            if ($record) {
-                // Pending Item Requests never deducted stock in the first place -
-                // reversing them would incorrectly add stock that was never removed.
-                if ($record['status'] === 'completed') {
-                    $reverseDelta = -Transaction::stockDelta($record['transaction_type'], (int) $record['quantity']);
-                    $this->item->adjustQuantity((int) $record['item_id'], $reverseDelta);
-                }
-                $this->transaction->delete($id);
-            }
-        }
-
-        header("Location: index.php?module=transactions&action=index&status=deleted");
-        exit;
-    }
-
-    /** Bulk delete - same rules as single delete(): skips auto rows, only
-     *  reverses stock for completed ones, leaves pending requests alone */
-    public function bulkDelete(): void
-    {
-        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
-        $deleted = 0;
-        $skipped = 0;
-
-        foreach ($ids as $id) {
-            $record = $this->transaction->readOne($id);
-            if (!$record) {
-                continue;
-            }
-            if ($record['source'] === 'auto') {
-                $skipped++;
-                continue;
-            }
-            if ($record['status'] === 'completed') {
-                $reverseDelta = -Transaction::stockDelta($record['transaction_type'], (int) $record['quantity']);
-                $this->item->adjustQuantity((int) $record['item_id'], $reverseDelta);
-            }
-            $this->transaction->delete($id);
-            $deleted++;
-        }
-
-        $status = $skipped > 0 ? 'bulk_partial' : 'bulk_deleted';
-        header("Location: index.php?module=transactions&action=index&status=$status&count=$deleted&skipped=$skipped");
         exit;
     }
 

@@ -58,6 +58,11 @@ require __DIR__ . '/../partials/header.php';
                 <input type="text" id="unit_of_measure" name="unit_of_measure"
                        value="<?= htmlspecialchars($data['unit_of_measure'] ?? '') ?>">
 
+                <label for="brand">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                <input type="text" id="brand" name="brand"
+                       placeholder="e.g. Daikin, Carrier"
+                       value="<?= htmlspecialchars($data['brand'] ?? '') ?>">
+
                 <label for="quantity_on_hand">Quantity on Hand</label>
                 <input type="number" id="quantity_on_hand" name="quantity_on_hand" min="0" step="1"
                        value="<?= htmlspecialchars($data['quantity_on_hand']) ?>" required>
@@ -65,10 +70,6 @@ require __DIR__ . '/../partials/header.php';
                 <label for="minimum_stock_level">Minimum Stock Level</label>
                 <input type="number" id="minimum_stock_level" name="minimum_stock_level" min="0" step="1"
                        value="<?= htmlspecialchars($data['minimum_stock_level']) ?>" required>
-
-                <label for="serial_number">Serial Number <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                <input type="text" id="serial_number" name="serial_number"
-                       value="<?= htmlspecialchars($data['serial_number'] ?? '') ?>">
 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Update Product</button>

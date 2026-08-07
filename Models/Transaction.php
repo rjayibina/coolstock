@@ -21,6 +21,10 @@ class Transaction
     public ?int $item_id = null;
     public ?string $transaction_type = null;
     public ?int $quantity = null;
+    // The serial number of the specific unit taken out, for Stock Out on
+    // categories that require one (see migration_category_requires_serial.sql).
+    // Always null for Stock In and for non-serialized categories.
+    public ?string $serial_number = null;
     // The date the stock movement actually happened (defaults to today if
     // not supplied). Separate from created_at, which is just the audit
     // timestamp of when the row was logged. See migration_transaction_date.sql.
@@ -74,14 +78,15 @@ class Transaction
         $this->transaction_date = $this->transaction_date ?: date('Y-m-d');
 
         $query = "INSERT INTO {$this->table}
-                    (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status)
+                    (item_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status)
                   VALUES
-                    (:item_id, :transaction_type, :quantity, :transaction_date, :technician_name, :notes, :source, :status)";
+                    (:item_id, :transaction_type, :quantity, :serial_number, :transaction_date, :technician_name, :notes, :source, :status)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
         $stmt->bindParam(':transaction_type', $this->transaction_type);
         $stmt->bindParam(':quantity', $this->quantity, PDO::PARAM_INT);
+        $stmt->bindParam(':serial_number', $this->serial_number);
         $stmt->bindParam(':transaction_date', $this->transaction_date);
         $stmt->bindParam(':technician_name', $this->technician_name);
         $stmt->bindParam(':notes', $this->notes);
@@ -221,15 +226,6 @@ class Transaction
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetch();
-    }
-
-    /** DELETE - remove a transaction row (stock reversal is handled by the controller) */
-    public function delete(int $id): bool
-    {
-        $query = "DELETE FROM {$this->table} WHERE transaction_id = :id";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-        return $stmt->execute();
     }
 
     /** Count of all transactions - used on the Dashboard */

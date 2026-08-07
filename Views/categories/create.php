@@ -34,6 +34,12 @@ require __DIR__ . '/../partials/header.php';
                 <textarea id="category_description" name="category_description"
                           placeholder="Optional notes about what belongs in this category"><?= htmlspecialchars($_POST['category_description'] ?? '') ?></textarea>
 
+                <label style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;color:var(--text-dark);margin-bottom:18px;">
+                    <input type="checkbox" name="requires_serial" value="1" <?= (!isset($_POST['category_name']) || isset($_POST['requires_serial'])) ? 'checked' : '' ?> style="width:auto;margin:0;">
+                    Requires a serial number when stock is taken out
+                </label>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave checked for whole units and unit parts. Uncheck for tools and cleaning/repair materials.</div>
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Category</button>
                     <a href="index.php?module=categories&action=index" class="btn btn-secondary">Cancel</a>

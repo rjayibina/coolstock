@@ -103,18 +103,10 @@ require __DIR__ . '/../partials/header.php';
             <div class="alert alert-warning">Can't approve — only <?= (int) ($_GET['available'] ?? 0) ?> in stock, which isn't enough to cover this request.</div>
         <?php elseif ($status === 'approve_invalid'): ?>
             <div class="alert alert-warning">That request has already been handled or doesn't exist.</div>
-        <?php elseif ($status === 'deleted'): ?>
-            <div class="alert alert-success">Transaction deleted and stock reversed.</div>
-        <?php elseif ($status === 'bulk_deleted'): ?>
-            <div class="alert alert-success"><?= $bulkCount ?> transaction<?= $bulkCount === 1 ? '' : 's' ?> deleted.</div>
-        <?php elseif ($status === 'bulk_partial'): ?>
-            <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped (system-generated entries can't be deleted here).</div>
         <?php elseif ($status === 'bulk_approved'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> request<?= $bulkCount === 1 ? '' : 's' ?> approved.</div>
         <?php elseif ($status === 'bulk_approve_partial'): ?>
             <div class="alert alert-warning"><?= $bulkCount ?> approved, <?= $bulkSkipped ?> skipped (not a pending request, or not enough stock).</div>
-        <?php elseif ($status === 'auto_locked'): ?>
-            <div class="alert alert-warning">That transaction was generated automatically by the system and can't be deleted from here.</div>
         <?php endif; ?>
 
         <?php if ($error): ?>
@@ -138,8 +130,6 @@ require __DIR__ . '/../partials/header.php';
                 <span><strong id="bulkCountLabel">0</strong> selected</span>
                 <button type="submit" formaction="index.php?module=transactions&action=bulkApprove" class="btn btn-sm" style="background:var(--success-bg);color:var(--success);"
                         onclick="return confirm('Approve all selected pending requests? Anything else selected will be skipped.');">Approve Selected</button>
-                <button type="submit" formaction="index.php?module=transactions&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected transactions? System-generated entries will be skipped.');">Delete Selected</button>
             </div>
 
             <div class="table-card">

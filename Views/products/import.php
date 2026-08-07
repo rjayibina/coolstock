@@ -48,8 +48,8 @@ require __DIR__ . '/../partials/header.php';
 
                     <div style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.6;">
                         The first row must be a header with these column names (any order):<br>
-                        <code>category_name, item_name, description, unit_of_measure, quantity_on_hand, minimum_stock_level, serial_number</code><br>
-                        <code>category_name</code> must match an existing category exactly. <code>serial_number</code> is optional — leave it blank for products that don't track one.
+                        <code>category_name, item_name, description, unit_of_measure, brand, quantity_on_hand, minimum_stock_level</code><br>
+                        <code>category_name</code> must match an existing category exactly. <code>brand</code> is optional — leave it blank if not applicable.
                     </div>
 
                     <div class="form-actions">

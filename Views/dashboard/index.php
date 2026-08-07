@@ -93,7 +93,7 @@ $typeColors = [
                 <thead>
                     <tr>
                         <th>Product</th>
-                        <th>Serial No.</th>
+                        <th>Brand</th>
                         <th>On Hand</th>
                         <th>Minimum</th>
                         <th>Category</th>
@@ -106,7 +106,7 @@ $typeColors = [
                         <?php foreach ($lowStockItems as $it): ?>
                             <tr>
                                 <td><strong><?= htmlspecialchars($it['item_name']) ?></strong></td>
-                                <td class="cell-id"><?= htmlspecialchars($it['serial_number'] ?? '—') ?></td>
+                                <td class="cell-id"><?= htmlspecialchars($it['brand'] ?? '—') ?></td>
                                 <td class="cell-id"><?= (int) $it['quantity_on_hand'] ?></td>
                                 <td class="cell-id"><?= (int) $it['minimum_stock_level'] ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>

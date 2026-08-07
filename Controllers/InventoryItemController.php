@@ -26,22 +26,21 @@ class InventoryItemController
 
     private const PER_PAGE = 10;
 
-    /** List all inventory items, optionally filtered by category / stock status / serial, and paginated */
+    /** List all inventory items, optionally filtered by category / stock status, and paginated */
     public function index(): void
     {
         $categoryId = $_GET['category_id'] ?? null;
         $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
-        $hasSerial = $_GET['has_serial'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->item->countFiltered($categoryId, $stockStatus, $hasSerial);
+        $totalCount = $this->item->countFiltered($categoryId, $stockStatus);
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $items = $this->item->readAll($categoryId, $stockStatus, $hasSerial, $sort, self::PER_PAGE, $offset);
+        $items = $this->item->readAll($categoryId, $stockStatus, $sort, self::PER_PAGE, $offset);
         $categories = $this->category->readAll();
 
         $pagination = [
@@ -60,25 +59,24 @@ class InventoryItemController
         $categoryId = $_GET['category_id'] ?? null;
         $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
-        $hasSerial = $_GET['has_serial'] ?? null;
 
-        $items = $this->item->readAll($categoryId, $stockStatus, $hasSerial);
+        $items = $this->item->readAll($categoryId, $stockStatus);
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="products_' . date('Y-m-d_His') . '.csv"');
 
         $out = fopen('php://output', 'w');
         // Same column set the Import feature expects, so export/import round-trip cleanly
-        fputcsv($out, ['category_name', 'item_name', 'description', 'unit_of_measure', 'quantity_on_hand', 'minimum_stock_level', 'serial_number']);
+        fputcsv($out, ['category_name', 'item_name', 'description', 'unit_of_measure', 'brand', 'quantity_on_hand', 'minimum_stock_level']);
         foreach ($items as $it) {
             fputcsv($out, [
                 $it['category_name'] ?? '',
                 $it['item_name'],
                 $it['description'],
                 $it['unit_of_measure'],
+                $it['brand'] ?? '',
                 $it['quantity_on_hand'],
                 $it['minimum_stock_level'],
-                $it['serial_number'] ?? '',
             ]);
         }
         fclose($out);
@@ -170,35 +168,6 @@ class InventoryItemController
         require __DIR__ . '/../Views/products/edit.php';
     }
 
-    /** Bulk delete a set of products (and their uploaded images) */
-    public function bulkDelete(): void
-    {
-        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
-
-        if (!empty($ids)) {
-            // Must capture image paths BEFORE deleting - the rows won't exist afterward
-            $imagesByIid = [];
-            foreach ($this->item->readByIds($ids) as $existing) {
-                $imagesByIid[$existing['item_id']] = $existing['image_path'];
-            }
-
-            $result = $this->item->bulkDelete($ids);
-
-            foreach ($result['deleted'] as $deletedId) {
-                if (!empty($imagesByIid[$deletedId])) {
-                    $this->deleteImageFile($imagesByIid[$deletedId]);
-                }
-            }
-
-            $status = !empty($result['skipped']) ? 'bulk_partial' : 'bulk_deleted';
-            header("Location: index.php?module=products&action=index&status=$status&count=" . count($result['deleted']) . "&skipped=" . count($result['skipped']));
-            exit;
-        }
-
-        header("Location: index.php?module=products&action=index");
-        exit;
-    }
-
     /** Bulk-reassign category for a set of products */
     public function bulkUpdateCategory(): void
     {
@@ -212,6 +181,45 @@ class InventoryItemController
         }
 
         header("Location: index.php?module=products&action=index");
+        exit;
+    }
+
+    /** Bulk Stock In - only for products that already exist on the Products
+     *  page (selected via the bulk checkboxes). Quantity only, per product;
+     *  rows left blank or 0 are skipped. Always logged as today - same rule
+     *  as the single Stock In/Out modal. */
+    public function bulkStockIn(): void
+    {
+        $quantities = $_POST['quantities'] ?? [];
+        $notes = trim($_POST['notes'] ?? '');
+        $created = 0;
+
+        foreach ($quantities as $itemId => $qty) {
+            $itemId = (int) $itemId;
+            $qty = is_numeric($qty) ? (int) $qty : 0;
+
+            if ($itemId <= 0 || $qty <= 0) {
+                continue;
+            }
+
+            $this->transaction->item_id = $itemId;
+            $this->transaction->transaction_type = 'stock_in';
+            $this->transaction->quantity = $qty;
+            $this->transaction->serial_number = null;
+            $this->transaction->transaction_date = date('Y-m-d');
+            $this->transaction->technician_name = null;
+            $this->transaction->notes = $notes;
+            $this->transaction->source = 'manual';
+            $this->transaction->status = 'completed';
+
+            if ($this->transaction->create()) {
+                $this->item->adjustQuantity($itemId, $qty);
+                $created++;
+            }
+        }
+
+        $status = $created > 0 ? 'bulk_stock_in' : 'bulk_stock_in_empty';
+        header("Location: index.php?module=products&action=index&status=$status&count=$created");
         exit;
     }
 
@@ -264,7 +272,7 @@ class InventoryItemController
         }
 
         // Expected header: category_name, item_name, description, unit_of_measure,
-        //                   quantity_on_hand, minimum_stock_level, serial_number
+        //                   brand, quantity_on_hand, minimum_stock_level
         $header = array_map(fn($h) => strtolower(trim((string) $h)), array_shift($rows));
         $col = array_flip($header);
 
@@ -300,9 +308,9 @@ class InventoryItemController
             $this->item->item_name = $itemName;
             $this->item->description = trim($row[$col['description']] ?? '');
             $this->item->unit_of_measure = trim($row[$col['unit_of_measure']] ?? '');
+            $this->item->brand = trim($row[$col['brand']] ?? '') ?: null;
             $this->item->quantity_on_hand = (int) ($row[$col['quantity_on_hand']] ?? 0);
             $this->item->minimum_stock_level = (int) ($row[$col['minimum_stock_level']] ?? 0);
-            $this->item->serial_number = trim($row[$col['serial_number']] ?? '') ?: null;
             $this->item->image_path = null;
 
             if ($this->item->create()) {
@@ -352,9 +360,9 @@ class InventoryItemController
         $item->item_name = trim($input['item_name']);
         $item->description = trim($input['description'] ?? '');
         $item->unit_of_measure = trim($input['unit_of_measure'] ?? '');
+        $item->brand = trim($input['brand'] ?? '') ?: null;
         $item->quantity_on_hand = (int) $input['quantity_on_hand'];
         $item->minimum_stock_level = (int) $input['minimum_stock_level'];
-        $item->serial_number = trim($input['serial_number'] ?? '') ?: null;
     }
 
     /**

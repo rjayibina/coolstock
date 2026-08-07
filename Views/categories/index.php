@@ -139,6 +139,12 @@ require __DIR__ . '/../partials/header.php';
                         <textarea id="ac_category_description" name="category_description"
                                   placeholder="Optional notes about what belongs in this category"></textarea>
 
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;color:var(--text-dark);margin-bottom:18px;">
+                            <input type="checkbox" id="ac_requires_serial" name="requires_serial" value="1" checked style="width:auto;margin:0;">
+                            Requires a serial number when stock is taken out
+                        </label>
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave checked for whole units and unit parts. Uncheck for tools and cleaning/repair materials.</div>
+
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Category</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('addCategoryModal')">Cancel</button>
@@ -163,6 +169,12 @@ require __DIR__ . '/../partials/header.php';
 
                         <label for="ec_category_description">Description</label>
                         <textarea id="ec_category_description" name="category_description"></textarea>
+
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;color:var(--text-dark);margin-bottom:18px;">
+                            <input type="checkbox" id="ec_requires_serial" name="requires_serial" value="1" style="width:auto;margin:0;">
+                            Requires a serial number when stock is taken out
+                        </label>
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave checked for whole units and unit parts. Uncheck for tools and cleaning/repair materials.</div>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Category</button>
@@ -208,6 +220,7 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('editCategoryForm').action = 'index.php?module=categories&action=edit&id=' + id;
             document.getElementById('ec_category_name').value = c.category_name || '';
             document.getElementById('ec_category_description').value = c.category_description || '';
+            document.getElementById('ec_requires_serial').checked = Number(c.requires_serial) === 1;
 
             document.getElementById('editCategoryModal').classList.add('open');
         }

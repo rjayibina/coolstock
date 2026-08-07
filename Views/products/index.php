@@ -8,7 +8,6 @@ $bulkCount = (int) ($_GET['count'] ?? 0);
 $bulkSkipped = (int) ($_GET['skipped'] ?? 0);
 $currentCategory = $_GET['category_id'] ?? '';
 $currentStockStatus = $_GET['stock_status'] ?? '';
-$currentSerial = $_GET['has_serial'] ?? '';
 $currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Products';
 $activeSection = 'inventory';
@@ -18,11 +17,10 @@ $count = count($items);
 // Builds a pagination link that keeps the current filters
 function productPageUrl(int $page): string
 {
-    global $currentCategory, $currentStockStatus, $currentSerial, $currentSort;
+    global $currentCategory, $currentStockStatus, $currentSort;
     return "index.php?module=products&action=index"
         . "&category_id=" . urlencode($currentCategory)
         . "&stock_status=" . urlencode($currentStockStatus)
-        . "&has_serial=" . urlencode($currentSerial)
         . "&sort=" . urlencode($currentSort)
         . "&page=" . $page;
 }
@@ -57,7 +55,7 @@ require __DIR__ . '/../partials/header.php';
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             Import
                         </a>
-                        <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&has_serial=<?= urlencode($currentSerial) ?>&sort=<?= urlencode($currentSort) ?>">
+                        <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&sort=<?= urlencode($currentSort) ?>">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             Export
                         </a>
@@ -68,7 +66,7 @@ require __DIR__ . '/../partials/header.php';
             </div>
         </div>
 
-        <div id="filterPanel" class="filter-panel <?= ($currentCategory !== '' || $currentStockStatus !== '' || $currentSerial !== '') ? 'open' : '' ?>">
+        <div id="filterPanel" class="filter-panel <?= ($currentCategory !== '' || $currentStockStatus !== '') ? 'open' : '' ?>">
             <form method="GET" action="index.php" class="filter-form">
                 <input type="hidden" name="module" value="products">
                 <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
@@ -91,15 +89,7 @@ require __DIR__ . '/../partials/header.php';
                         <option value="out_of_stock" <?= $currentStockStatus === 'out_of_stock' ? 'selected' : '' ?>>Out of Stock</option>
                     </select>
                 </div>
-                <div>
-                    <label>Serial</label>
-                    <select name="has_serial" onchange="this.form.submit()">
-                        <option value="">All Products</option>
-                        <option value="1" <?= $currentSerial === '1' ? 'selected' : '' ?>>Has Serial</option>
-                        <option value="0" <?= $currentSerial === '0' ? 'selected' : '' ?>>No Serial</option>
-                    </select>
-                </div>
-                <?php if ($currentCategory !== '' || $currentStockStatus !== '' || $currentSerial !== ''): ?>
+                <?php if ($currentCategory !== '' || $currentStockStatus !== ''): ?>
                     <a href="index.php?module=products&action=index" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Clear</a>
                 <?php endif; ?>
             </form>
@@ -114,10 +104,12 @@ require __DIR__ . '/../partials/header.php';
         <?php elseif ($status === 'stock_updated'): ?>
             <?php $stockType = $_GET['type'] ?? ''; ?>
             <div class="alert alert-success"><?= $stockType === 'stock_out' ? 'Stock removed successfully.' : 'Stock added successfully.' ?></div>
-        <?php elseif ($status === 'bulk_deleted'): ?>
-            <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> deleted.</div>
         <?php elseif ($status === 'bulk_updated'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> moved to the new category.</div>
+        <?php elseif ($status === 'bulk_stock_in'): ?>
+            <div class="alert alert-success">Stock added for <?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?>.</div>
+        <?php elseif ($status === 'bulk_stock_in_empty'): ?>
+            <div class="alert alert-warning">No quantities were entered, so nothing was stocked in.</div>
         <?php endif; ?>
 
         <div class="sort-bar">
@@ -142,8 +134,7 @@ require __DIR__ . '/../partials/header.php';
                     <?php endforeach; ?>
                 </select>
                 <button type="submit" formaction="index.php?module=products&action=bulkUpdateCategory" class="btn btn-secondary btn-sm">Change Category</button>
-                <button type="submit" formaction="index.php?module=products&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected products? This cannot be undone.');">Delete Selected</button>
+                <button type="button" class="btn btn-success btn-sm" onclick="openBulkStockInModal()">Stock In Selected</button>
             </div>
 
             <div class="table-card">
@@ -155,7 +146,7 @@ require __DIR__ . '/../partials/header.php';
                             <th>Product</th>
                             <th>Category</th>
                             <th>Unit</th>
-                            <th>Serial No.</th>
+                            <th>Brand</th>
                             <th>Stock</th>
                             <th>Status</th>
                             <th style="width:190px;">Actions</th>
@@ -186,7 +177,7 @@ require __DIR__ . '/../partials/header.php';
                                     <td><strong><?= htmlspecialchars($it['item_name']) ?></strong></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['unit_of_measure'] ?? '—') ?></td>
-                                    <td class="cell-muted"><?= htmlspecialchars($it['serial_number'] ?? '—') ?></td>
+                                    <td class="cell-muted"><?= htmlspecialchars($it['brand'] ?? '—') ?></td>
                                     <td class="cell-id"><?= (int) $it['quantity_on_hand'] ?> <span class="cell-muted">/ min <?= (int) $it['minimum_stock_level'] ?></span></td>
                                     <td>
                                         <?php if ($isOut): ?>
@@ -201,7 +192,6 @@ require __DIR__ . '/../partials/header.php';
                                         <button type="button" class="btn btn-sm" style="background:var(--success-bg);color:var(--success);" title="Stock in" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_in')">+</button>
                                         <button type="button" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);" title="Stock out" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_out')">&minus;</button>
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditProductModal(<?= $it['item_id'] ?>)">Edit</button>
-                                        <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteProductModal(<?= $it['item_id'] ?>)">Delete</button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -250,9 +240,9 @@ require __DIR__ . '/../partials/header.php';
 
                     <table style="width:100%;font-size:13.5px;border-collapse:collapse;">
                         <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Unit of Measure</td><td id="vpm-unit" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Brand</td><td id="vpm-brand" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Quantity on Hand</td><td id="vpm-stock" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Minimum Stock Level</td><td id="vpm-min" style="padding:6px 0;font-weight:600;"></td></tr>
-                        <tr><td style="padding:6px 0;color:var(--text-muted);">Serial Number</td><td id="vpm-serial" style="padding:6px 0;font-weight:600;"></td></tr>
                     </table>
 
                     <div class="form-actions" style="margin-top:18px;">
@@ -291,15 +281,14 @@ require __DIR__ . '/../partials/header.php';
                         <input type="text" id="ap_unit_of_measure" name="unit_of_measure"
                                placeholder="e.g. pcs, kg, box">
 
+                        <label for="ap_brand">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <input type="text" id="ap_brand" name="brand" placeholder="e.g. Daikin, Carrier">
+
                         <label for="ap_quantity_on_hand">Quantity on Hand</label>
                         <input type="number" id="ap_quantity_on_hand" name="quantity_on_hand" min="0" step="1" value="0" required>
 
                         <label for="ap_minimum_stock_level">Minimum Stock Level</label>
                         <input type="number" id="ap_minimum_stock_level" name="minimum_stock_level" min="0" step="1" value="0" required>
-
-                        <label for="ap_serial_number">Serial Number <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" id="ap_serial_number" name="serial_number"
-                               placeholder="e.g. SN-2026-00123">
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Product</button>
@@ -348,36 +337,20 @@ require __DIR__ . '/../partials/header.php';
                         <label for="ep_unit_of_measure">Unit of Measure</label>
                         <input type="text" id="ep_unit_of_measure" name="unit_of_measure">
 
+                        <label for="ep_brand">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <input type="text" id="ep_brand" name="brand" placeholder="e.g. Daikin, Carrier">
+
                         <label for="ep_quantity_on_hand">Quantity on Hand</label>
                         <input type="number" id="ep_quantity_on_hand" name="quantity_on_hand" min="0" step="1" required>
 
                         <label for="ep_minimum_stock_level">Minimum Stock Level</label>
                         <input type="number" id="ep_minimum_stock_level" name="minimum_stock_level" min="0" step="1" required>
 
-                        <label for="ep_serial_number">Serial Number <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" id="ep_serial_number" name="serial_number">
-
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Product</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('editProductModal')">Cancel</button>
                         </div>
                     </form>
-                </div>
-            </div>
-        </div>
-
-        <div id="deleteProductModal" class="modal-overlay" onclick="if(event.target===this) closeModal('deleteProductModal')">
-            <div class="modal-dialog modal-dialog-sm">
-                <div class="modal-header">
-                    <h3>Delete Product</h3>
-                    <button type="button" class="modal-close" onclick="closeModal('deleteProductModal')">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <p>Delete <strong id="dp_name"></strong>? This cannot be undone.</p>
-                    <div class="form-actions">
-                        <a id="dp_confirm_link" href="#" class="btn btn-danger-solid">Delete</a>
-                        <button type="button" class="btn btn-secondary" onclick="closeModal('deleteProductModal')">Cancel</button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -402,6 +375,11 @@ require __DIR__ . '/../partials/header.php';
                         <label for="sm_quantity">Quantity</label>
                         <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity" required>
 
+                        <div id="sm_serial_wrap" style="display:none;">
+                            <label for="sm_serial_number">Serial Number</label>
+                            <input type="text" id="sm_serial_number" name="serial_number" placeholder="Serial number of the unit being taken out">
+                        </div>
+
                         <label for="sm_transaction_date">Transaction Date</label>
                         <input type="date" id="sm_transaction_date" name="transaction_date" readonly
                                onkeydown="return false" style="background: var(--bg-subtle, #F5F6FB); color: var(--text-muted); cursor: not-allowed;" required>
@@ -413,6 +391,29 @@ require __DIR__ . '/../partials/header.php';
                         <div class="form-actions">
                             <button type="submit" class="btn btn-success" id="sm_submit">+ Add Stock</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('stockModal')">Back</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="bulkStockInModal" class="modal-overlay" onclick="if(event.target===this) closeModal('bulkStockInModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3>Bulk Stock In <span style="font-weight:400;color:var(--text-muted);">(<span id="bsi_count">0</span> products)</span></h3>
+                    <button type="button" class="modal-close" onclick="closeModal('bulkStockInModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="index.php?module=products&action=bulkStockIn">
+                        <div id="bsi_list"></div>
+                        <div style="font-size:12px;color:var(--text-muted);margin:-4px 0 18px;">Leave a field blank to skip that product. Logged with today's date.</div>
+
+                        <label for="bsi_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional, applies to the whole batch)</span></label>
+                        <textarea id="bsi_notes" name="notes" placeholder="Optional notes about this batch"></textarea>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success">Add Stock</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('bulkStockInModal')">Cancel</button>
                         </div>
                     </form>
                 </div>
@@ -466,9 +467,9 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vpm-category').textContent = p.category_name || 'Uncategorized';
             document.getElementById('vpm-description').textContent = p.description || 'No description provided.';
             document.getElementById('vpm-unit').textContent = p.unit_of_measure || '—';
+            document.getElementById('vpm-brand').textContent = p.brand || '—';
             document.getElementById('vpm-stock').textContent = p.quantity_on_hand;
             document.getElementById('vpm-min').textContent = p.minimum_stock_level;
-            document.getElementById('vpm-serial').textContent = p.serial_number || '—';
 
             const statusEl = document.getElementById('vpm-status');
             const qty = parseInt(p.quantity_on_hand);
@@ -528,9 +529,9 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('ep_item_name').value = p.item_name || '';
             document.getElementById('ep_description').value = p.description || '';
             document.getElementById('ep_unit_of_measure').value = p.unit_of_measure || '';
+            document.getElementById('ep_brand').value = p.brand || '';
             document.getElementById('ep_quantity_on_hand').value = p.quantity_on_hand;
             document.getElementById('ep_minimum_stock_level').value = p.minimum_stock_level;
-            document.getElementById('ep_serial_number').value = p.serial_number || '';
             document.getElementById('ep_category_id').value = p.category_id || '';
             document.getElementById('ep_product_image').value = '';
 
@@ -550,15 +551,6 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('editProductModal').classList.add('open');
         }
 
-        function openDeleteProductModal(id) {
-            const p = productsData[id];
-            if (!p) return;
-
-            document.getElementById('dp_name').textContent = p.item_name;
-            document.getElementById('dp_confirm_link').href = 'index.php?module=products&action=delete&id=' + id;
-            document.getElementById('deleteProductModal').classList.add('open');
-        }
-
         function openStockModal(id, mode) {
             const p = productsData[id];
             if (!p) return;
@@ -566,6 +558,7 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('sm_item_id').value = id;
             document.getElementById('sm_quantity').value = '';
             document.getElementById('sm_notes').value = '';
+            document.getElementById('sm_serial_number').value = '';
             document.getElementById('sm_transaction_date').value = new Date().toISOString().slice(0, 10);
             setStockMode(mode);
             document.getElementById('stockModal').classList.add('open');
@@ -590,6 +583,52 @@ require __DIR__ . '/../partials/header.php';
                 submitBtn.textContent = '\u2212 Remove Stock';
                 submitBtn.className = 'btn btn-danger-solid';
             }
+
+            const serialWrap = document.getElementById('sm_serial_wrap');
+            const serialInput = document.getElementById('sm_serial_number');
+            const needsSerial = mode === 'stock_out' && p && Number(p.requires_serial) === 1;
+
+            serialWrap.style.display = needsSerial ? 'block' : 'none';
+            serialInput.required = needsSerial;
+            if (!needsSerial) serialInput.value = '';
+        }
+
+        function openBulkStockInModal() {
+            const checked = Array.from(document.querySelectorAll('.product-check:checked'));
+            if (checked.length === 0) return;
+
+            const container = document.getElementById('bsi_list');
+            container.innerHTML = '';
+
+            checked.forEach(cb => {
+                const id = cb.value;
+                const p = productsData[id];
+                if (!p) return;
+
+                const wrap = document.createElement('div');
+                wrap.style.marginBottom = '14px';
+
+                const label = document.createElement('label');
+                label.style.marginBottom = '6px';
+                label.setAttribute('for', 'bsi_qty_' + id);
+                label.textContent = p.item_name + ' (current: ' + p.quantity_on_hand + (p.unit_of_measure ? ' ' + p.unit_of_measure : '') + ')';
+
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.id = 'bsi_qty_' + id;
+                input.name = 'quantities[' + id + ']';
+                input.min = '0';
+                input.step = '1';
+                input.placeholder = 'Qty to add';
+                input.style.marginBottom = '0';
+
+                wrap.appendChild(label);
+                wrap.appendChild(input);
+                container.appendChild(wrap);
+            });
+
+            document.getElementById('bsi_count').textContent = checked.length;
+            document.getElementById('bulkStockInModal').classList.add('open');
         }
 
         function toggleAllProducts(source) {
@@ -621,8 +660,8 @@ require __DIR__ . '/../partials/header.php';
                 document.getElementById('viewProductModal')?.classList.remove('open');
                 document.getElementById('addProductModal')?.classList.remove('open');
                 document.getElementById('editProductModal')?.classList.remove('open');
-                document.getElementById('deleteProductModal')?.classList.remove('open');
                 document.getElementById('stockModal')?.classList.remove('open');
+                document.getElementById('bulkStockInModal')?.classList.remove('open');
             }
         });
         </script>

@@ -5,7 +5,7 @@ require_once __DIR__ . '/../Config/Database.php';
  * InventoryItem.php (Model)
  * Maps to the inventory_items table from the ERD:
  * item_id(PK), category_id(FK), item_name, description,
- * unit_of_measure, quantity_on_hand, minimum_stock_level, serial_number
+ * unit_of_measure, brand, quantity_on_hand, minimum_stock_level
  */
 class InventoryItem
 {
@@ -17,9 +17,9 @@ class InventoryItem
     public ?string $item_name = null;
     public ?string $description = null;
     public ?string $unit_of_measure = null;
+    public ?string $brand = null;
     public ?int $quantity_on_hand = null;
     public ?int $minimum_stock_level = null;
-    public ?string $serial_number = null;
     public ?string $image_path = null;
 
     public function __construct()
@@ -31,11 +31,11 @@ class InventoryItem
     public function create(): bool
     {
         $query = "INSERT INTO {$this->table}
-                    (category_id, item_name, description, unit_of_measure,
-                     quantity_on_hand, minimum_stock_level, serial_number, image_path)
+                    (category_id, item_name, description, unit_of_measure, brand,
+                     quantity_on_hand, minimum_stock_level, image_path)
                   VALUES
-                    (:category_id, :item_name, :description, :unit_of_measure,
-                     :quantity_on_hand, :minimum_stock_level, :serial_number, :image_path)";
+                    (:category_id, :item_name, :description, :unit_of_measure, :brand,
+                     :quantity_on_hand, :minimum_stock_level, :image_path)";
 
         $stmt = $this->conn->prepare($query);
         if ($this->category_id === null) {
@@ -46,9 +46,9 @@ class InventoryItem
         $stmt->bindParam(':item_name', $this->item_name);
         $stmt->bindParam(':description', $this->description);
         $stmt->bindParam(':unit_of_measure', $this->unit_of_measure);
+        $stmt->bindParam(':brand', $this->brand);
         $stmt->bindParam(':quantity_on_hand', $this->quantity_on_hand, PDO::PARAM_INT);
         $stmt->bindParam(':minimum_stock_level', $this->minimum_stock_level, PDO::PARAM_INT);
-        $stmt->bindParam(':serial_number', $this->serial_number);
         $stmt->bindParam(':image_path', $this->image_path);
 
         return $stmt->execute();
@@ -61,7 +61,7 @@ class InventoryItem
     }
 
     /** READ - all items, joined with category name, most recent first.
-     *  $categoryId / $stockStatus ('low'|'in_stock') / $hasSerial ('1'|'0') optionally filter the results.
+     *  $categoryId / $stockStatus ('low'|'in_stock') optionally filter the results.
      *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
     public const SORT_OPTIONS = [
         'name_asc' => 'i.item_name ASC',
@@ -74,12 +74,12 @@ class InventoryItem
     ];
 
     /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
-    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
-        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $hasSerial);
+        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus);
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
 
-        $query = "SELECT i.*, c.category_name
+        $query = "SELECT i.*, c.category_name, c.requires_serial
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   WHERE {$where}
@@ -102,9 +102,9 @@ class InventoryItem
     }
 
     /** Count of items matching the same filters as readAll() - powers pagination */
-    public function countFiltered(?string $categoryId = null, ?string $stockStatus = null, ?string $hasSerial = null): int
+    public function countFiltered(?string $categoryId = null, ?string $stockStatus = null): int
     {
-        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $hasSerial);
+        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus);
         $query = "SELECT COUNT(*) AS total FROM {$this->table} i WHERE {$where}";
         $stmt = $this->conn->prepare($query);
         foreach ($params as $key => $value) {
@@ -115,7 +115,7 @@ class InventoryItem
     }
 
     /** Shared WHERE-clause builder for readAll() and countFiltered() so the two never drift apart */
-    private function buildFilterClause(?string $categoryId, ?string $stockStatus, ?string $hasSerial): array
+    private function buildFilterClause(?string $categoryId, ?string $stockStatus): array
     {
         $where = "1=1";
         $params = [];
@@ -132,11 +132,6 @@ class InventoryItem
             $where .= " AND i.quantity_on_hand > 0 AND i.quantity_on_hand <= i.minimum_stock_level";
         } elseif ($stockStatus === 'in_stock') {
             $where .= " AND i.quantity_on_hand > i.minimum_stock_level";
-        }
-        if ($hasSerial === '1') {
-            $where .= " AND i.serial_number IS NOT NULL AND i.serial_number <> ''";
-        } elseif ($hasSerial === '0') {
-            $where .= " AND (i.serial_number IS NULL OR i.serial_number = '')";
         }
 
         return [$where, $params];
@@ -155,7 +150,7 @@ class InventoryItem
     /** READ - single item by id, joined with category name */
     public function readOne(int $id): array|false
     {
-        $query = "SELECT i.*, c.category_name
+        $query = "SELECT i.*, c.category_name, c.requires_serial
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   WHERE i.item_id = :id LIMIT 1";
@@ -173,9 +168,9 @@ class InventoryItem
                     item_name = :item_name,
                     description = :description,
                     unit_of_measure = :unit_of_measure,
+                    brand = :brand,
                     quantity_on_hand = :quantity_on_hand,
                     minimum_stock_level = :minimum_stock_level,
-                    serial_number = :serial_number,
                     image_path = :image_path
                   WHERE item_id = :item_id";
 
@@ -188,9 +183,9 @@ class InventoryItem
         $stmt->bindParam(':item_name', $this->item_name);
         $stmt->bindParam(':description', $this->description);
         $stmt->bindParam(':unit_of_measure', $this->unit_of_measure);
+        $stmt->bindParam(':brand', $this->brand);
         $stmt->bindParam(':quantity_on_hand', $this->quantity_on_hand, PDO::PARAM_INT);
         $stmt->bindParam(':minimum_stock_level', $this->minimum_stock_level, PDO::PARAM_INT);
-        $stmt->bindParam(':serial_number', $this->serial_number);
         $stmt->bindParam(':image_path', $this->image_path);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
 
@@ -217,31 +212,6 @@ class InventoryItem
         $stmt->bindParam(':delta', $delta, PDO::PARAM_INT);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
-    }
-
-    /** READ - multiple items by id (used before a bulk delete, to clean up their images) */
-    public function readByIds(array $ids): array
-    {
-        if (empty($ids)) {
-            return [];
-        }
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $this->conn->prepare("SELECT * FROM {$this->table} WHERE item_id IN ($placeholders)");
-        $stmt->execute(array_map('intval', $ids));
-        return $stmt->fetchAll();
-    }
-
-    /** Bulk delete - deletes each product (their past transactions are kept, not deleted), returns the deleted ids */
-    public function bulkDelete(array $ids): array
-    {
-        $deleted = [];
-        foreach ($ids as $id) {
-            $id = (int) $id;
-            if ($this->delete($id)) {
-                $deleted[] = $id;
-            }
-        }
-        return ['deleted' => $deleted, 'skipped' => []];
     }
 
     /** Bulk-reassign category for a set of products - returns the number of rows updated */
