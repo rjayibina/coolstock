@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/../Models/InventoryItem.php';
 require_once __DIR__ . '/../Models/Category.php';
+require_once __DIR__ . '/../Models/Brand.php';
+require_once __DIR__ . '/../Models/ItemType.php';
+require_once __DIR__ . '/../Models/Location.php';
 require_once __DIR__ . '/../Models/Transaction.php';
 require_once __DIR__ . '/../Helpers/SpreadsheetReader.php';
 
@@ -13,6 +16,9 @@ class InventoryItemController
 {
     private InventoryItem $item;
     private Category $category;
+    private Brand $brand;
+    private ItemType $itemType;
+    private Location $location;
     private Transaction $transaction;
     private string $uploadDir;
 
@@ -20,6 +26,9 @@ class InventoryItemController
     {
         $this->item = new InventoryItem();
         $this->category = new Category();
+        $this->brand = new Brand();
+        $this->itemType = new ItemType();
+        $this->location = new Location();
         $this->transaction = new Transaction();
         $this->uploadDir = __DIR__ . '/../assets/uploads/products/';
     }
@@ -32,16 +41,21 @@ class InventoryItemController
         $categoryId = $_GET['category_id'] ?? null;
         $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
+        $locationId = $_GET['location_id'] ?? null;
+        $locationId = ($locationId === '') ? null : $locationId;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->item->countFiltered($categoryId, $stockStatus);
+        $totalCount = $this->item->countFiltered($categoryId, $stockStatus, $locationId);
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $items = $this->item->readAll($categoryId, $stockStatus, $sort, self::PER_PAGE, $offset);
+        $items = $this->item->readAll($categoryId, $stockStatus, $sort, self::PER_PAGE, $offset, $locationId);
         $categories = $this->category->readAll();
+        $brands = $this->brand->readAll();
+        $itemTypes = $this->itemType->readAll();
+        $locations = $this->location->readAll();
 
         $pagination = [
             'page' => $page,
@@ -59,22 +73,39 @@ class InventoryItemController
         $categoryId = $_GET['category_id'] ?? null;
         $categoryId = ($categoryId === '') ? null : $categoryId;
         $stockStatus = $_GET['stock_status'] ?? null;
+        $locationId = $_GET['location_id'] ?? null;
+        $locationId = ($locationId === '') ? null : $locationId;
 
-        $items = $this->item->readAll($categoryId, $stockStatus);
+        $items = $this->item->readAll($categoryId, $stockStatus, null, null, null, $locationId);
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="products_' . date('Y-m-d_His') . '.csv"');
 
         $out = fopen('php://output', 'w');
-        // Same column set the Import feature expects, so export/import round-trip cleanly
-        fputcsv($out, ['category_name', 'item_name', 'description', 'unit_of_measure', 'brand', 'quantity_on_hand', 'minimum_stock_level']);
+        // Same column set the Import feature expects, so export/import round-trip cleanly.
+        // brand_name / type_name / location_name are lookup columns (like category_name) -
+        // the actual FKs are brand_id / item_type_id / location_id. brand_code is
+        // read-only/informational (it lives on the brands table, not the item) and is
+        // ignored on import - only brand_name is used to resolve brand_id.
+        fputcsv($out, ['category_name', 'item_name', 'description', 'unit_of_measure', 'brand_name', 'brand_code', 'type_name', 'location_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year', 'quantity_on_hand', 'minimum_stock_level']);
         foreach ($items as $it) {
             fputcsv($out, [
                 $it['category_name'] ?? '',
                 $it['item_name'],
                 $it['description'],
                 $it['unit_of_measure'],
-                $it['brand'] ?? '',
+                $it['brand_name'] ?? '',
+                $it['brand_code'] ?? '',
+                $it['type_name'] ?? '',
+                $it['location_name'] ?? '',
+                $it['model'] ?? '',
+                $it['energy_rating'] ?? '',
+                $it['monthly_consumption'] ?? '',
+                $it['cooling_capacity'] ?? '',
+                $it['refrigerant'] ?? '',
+                $it['installation_type'] ?? '',
+                $it['power_input'] ?? '',
+                $it['year'] ?? '',
                 $it['quantity_on_hand'],
                 $it['minimum_stock_level'],
             ]);
@@ -88,6 +119,9 @@ class InventoryItemController
     {
         $error = null;
         $categories = $this->category->readAll();
+        $brands = $this->brand->readAll();
+        $itemTypes = $this->itemType->readAll();
+        $locations = $this->location->readAll();
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = $this->validate($_POST);
@@ -122,6 +156,9 @@ class InventoryItemController
         $id = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($_POST['item_id'] ?? 0);
         $error = null;
         $categories = $this->category->readAll();
+        $brands = $this->brand->readAll();
+        $itemTypes = $this->itemType->readAll();
+        $locations = $this->location->readAll();
 
         if ($id <= 0) {
             header("Location: index.php?module=products&action=index");
@@ -272,7 +309,7 @@ class InventoryItemController
         }
 
         // Expected header: category_name, item_name, description, unit_of_measure,
-        //                   brand, quantity_on_hand, minimum_stock_level
+        //                   brand_name, type_name, location_name, quantity_on_hand, minimum_stock_level
         $header = array_map(fn($h) => strtolower(trim((string) $h)), array_shift($rows));
         $col = array_flip($header);
 
@@ -280,6 +317,24 @@ class InventoryItemController
         $categoryByName = [];
         foreach ($categories as $cat) {
             $categoryByName[strtolower($cat['category_name'])] = $cat['category_id'];
+        }
+
+        $brands = $this->brand->readAll();
+        $brandByName = [];
+        foreach ($brands as $b) {
+            $brandByName[strtolower($b['brand_name'])] = $b['brand_id'];
+        }
+
+        $itemTypes = $this->itemType->readAll();
+        $itemTypeByName = [];
+        foreach ($itemTypes as $t) {
+            $itemTypeByName[strtolower($t['type_name'])] = $t['item_type_id'];
+        }
+
+        $locations = $this->location->readAll();
+        $locationByName = [];
+        foreach ($locations as $loc) {
+            $locationByName[strtolower($loc['location_name'])] = $loc['location_id'];
         }
 
         $imported = 0;
@@ -292,6 +347,9 @@ class InventoryItemController
             }
 
             $categoryName = strtolower(trim($row[$col['category_name']] ?? ''));
+            $brandName = strtolower(trim($row[$col['brand_name']] ?? ''));
+            $typeName = strtolower(trim($row[$col['type_name']] ?? ''));
+            $locationName = strtolower(trim($row[$col['location_name']] ?? ''));
             $itemName = trim($row[$col['item_name']] ?? '');
 
             if ($itemName === '') {
@@ -302,13 +360,35 @@ class InventoryItemController
                 $skipped[] = "Row $rowNum: category \"" . ($row[$col['category_name']] ?? '') . "\" not found.";
                 continue;
             }
+            if ($brandName !== '' && !isset($brandByName[$brandName])) {
+                $skipped[] = "Row $rowNum: brand \"" . ($row[$col['brand_name']] ?? '') . "\" not found.";
+                continue;
+            }
+            if ($typeName !== '' && !isset($itemTypeByName[$typeName])) {
+                $skipped[] = "Row $rowNum: item type \"" . ($row[$col['type_name']] ?? '') . "\" not found.";
+                continue;
+            }
+            if ($locationName !== '' && !isset($locationByName[$locationName])) {
+                $skipped[] = "Row $rowNum: location \"" . ($row[$col['location_name']] ?? '') . "\" not found.";
+                continue;
+            }
 
             $this->item->item_id = null;
             $this->item->category_id = $categoryByName[$categoryName] ?? null;
             $this->item->item_name = $itemName;
             $this->item->description = trim($row[$col['description']] ?? '');
             $this->item->unit_of_measure = trim($row[$col['unit_of_measure']] ?? '');
-            $this->item->brand = trim($row[$col['brand']] ?? '') ?: null;
+            $this->item->brand_id = $brandByName[$brandName] ?? null;
+            $this->item->item_type_id = $itemTypeByName[$typeName] ?? null;
+            $this->item->location_id = $locationByName[$locationName] ?? null;
+            $this->item->model = isset($col['model']) ? (trim($row[$col['model']] ?? '') ?: null) : null;
+            $this->item->energy_rating = isset($col['energy_rating']) ? (trim($row[$col['energy_rating']] ?? '') ?: null) : null;
+            $this->item->monthly_consumption = isset($col['monthly_consumption']) && is_numeric($row[$col['monthly_consumption']] ?? '') ? (float) $row[$col['monthly_consumption']] : null;
+            $this->item->cooling_capacity = isset($col['cooling_capacity']) ? (trim($row[$col['cooling_capacity']] ?? '') ?: null) : null;
+            $this->item->refrigerant = isset($col['refrigerant']) ? (trim($row[$col['refrigerant']] ?? '') ?: null) : null;
+            $this->item->installation_type = isset($col['installation_type']) ? (trim($row[$col['installation_type']] ?? '') ?: null) : null;
+            $this->item->power_input = isset($col['power_input']) ? (trim($row[$col['power_input']] ?? '') ?: null) : null;
+            $this->item->year = isset($col['year']) && is_numeric($row[$col['year']] ?? '') ? (int) $row[$col['year']] : null;
             $this->item->quantity_on_hand = (int) ($row[$col['quantity_on_hand']] ?? 0);
             $this->item->minimum_stock_level = (int) ($row[$col['minimum_stock_level']] ?? 0);
             $this->item->image_path = null;
@@ -350,6 +430,9 @@ class InventoryItemController
         if (!is_numeric($input['minimum_stock_level'] ?? '') || $input['minimum_stock_level'] < 0) {
             return "Minimum stock level must be a non-negative number.";
         }
+        if (!empty($input['year']) && (!is_numeric($input['year']) || $input['year'] < 1990 || $input['year'] > (int) date('Y') + 1)) {
+            return "Year must be a valid model year.";
+        }
         return null;
     }
 
@@ -360,7 +443,17 @@ class InventoryItemController
         $item->item_name = trim($input['item_name']);
         $item->description = trim($input['description'] ?? '');
         $item->unit_of_measure = trim($input['unit_of_measure'] ?? '');
-        $item->brand = trim($input['brand'] ?? '') ?: null;
+        $item->brand_id = !empty($input['brand_id']) ? (int) $input['brand_id'] : null;
+        $item->item_type_id = !empty($input['item_type_id']) ? (int) $input['item_type_id'] : null;
+        $item->location_id = !empty($input['location_id']) ? (int) $input['location_id'] : null;
+        $item->model = trim($input['model'] ?? '') ?: null;
+        $item->energy_rating = trim($input['energy_rating'] ?? '') ?: null;
+        $item->monthly_consumption = is_numeric($input['monthly_consumption'] ?? '') ? (float) $input['monthly_consumption'] : null;
+        $item->cooling_capacity = trim($input['cooling_capacity'] ?? '') ?: null;
+        $item->refrigerant = trim($input['refrigerant'] ?? '') ?: null;
+        $item->installation_type = trim($input['installation_type'] ?? '') ?: null;
+        $item->power_input = trim($input['power_input'] ?? '') ?: null;
+        $item->year = is_numeric($input['year'] ?? '') ? (int) $input['year'] : null;
         $item->quantity_on_hand = (int) $input['quantity_on_hand'];
         $item->minimum_stock_level = (int) $input['minimum_stock_level'];
     }

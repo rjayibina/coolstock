@@ -8,6 +8,7 @@ $bulkCount = (int) ($_GET['count'] ?? 0);
 $bulkSkipped = (int) ($_GET['skipped'] ?? 0);
 $currentCategory = $_GET['category_id'] ?? '';
 $currentStockStatus = $_GET['stock_status'] ?? '';
+$currentLocation = $_GET['location_id'] ?? '';
 $currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Products';
 $activeSection = 'inventory';
@@ -17,10 +18,11 @@ $count = count($items);
 // Builds a pagination link that keeps the current filters
 function productPageUrl(int $page): string
 {
-    global $currentCategory, $currentStockStatus, $currentSort;
+    global $currentCategory, $currentStockStatus, $currentLocation, $currentSort;
     return "index.php?module=products&action=index"
         . "&category_id=" . urlencode($currentCategory)
         . "&stock_status=" . urlencode($currentStockStatus)
+        . "&location_id=" . urlencode($currentLocation)
         . "&sort=" . urlencode($currentSort)
         . "&page=" . $page;
 }
@@ -55,7 +57,7 @@ require __DIR__ . '/../partials/header.php';
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             Import
                         </a>
-                        <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&sort=<?= urlencode($currentSort) ?>">
+                        <a href="index.php?module=products&action=export&category_id=<?= urlencode($currentCategory) ?>&stock_status=<?= urlencode($currentStockStatus) ?>&location_id=<?= urlencode($currentLocation) ?>&sort=<?= urlencode($currentSort) ?>">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                             Export
                         </a>
@@ -66,7 +68,7 @@ require __DIR__ . '/../partials/header.php';
             </div>
         </div>
 
-        <div id="filterPanel" class="filter-panel <?= ($currentCategory !== '' || $currentStockStatus !== '') ? 'open' : '' ?>">
+        <div id="filterPanel" class="filter-panel <?= ($currentCategory !== '' || $currentStockStatus !== '' || $currentLocation !== '') ? 'open' : '' ?>">
             <form method="GET" action="index.php" class="filter-form">
                 <input type="hidden" name="module" value="products">
                 <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
@@ -89,7 +91,17 @@ require __DIR__ . '/../partials/header.php';
                         <option value="out_of_stock" <?= $currentStockStatus === 'out_of_stock' ? 'selected' : '' ?>>Out of Stock</option>
                     </select>
                 </div>
-                <?php if ($currentCategory !== '' || $currentStockStatus !== ''): ?>
+                <div>
+                    <label>Location</label>
+                    <select name="location_id" onchange="this.form.submit()">
+                        <option value="">All Locations</option>
+                        <option value="none" <?= $currentLocation === 'none' ? 'selected' : '' ?>>Unassigned</option>
+                        <?php foreach ($locations as $loc): ?>
+                            <option value="<?= $loc['location_id'] ?>" <?= ($currentLocation == $loc['location_id']) ? 'selected' : '' ?>><?= htmlspecialchars($loc['location_name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <?php if ($currentCategory !== '' || $currentStockStatus !== '' || $currentLocation !== ''): ?>
                     <a href="index.php?module=products&action=index" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Clear</a>
                 <?php endif; ?>
             </form>
@@ -147,6 +159,8 @@ require __DIR__ . '/../partials/header.php';
                             <th>Category</th>
                             <th>Unit</th>
                             <th>Brand</th>
+                            <th>Type</th>
+                            <th>Location</th>
                             <th>Stock</th>
                             <th>Status</th>
                             <th style="width:190px;">Actions</th>
@@ -155,7 +169,7 @@ require __DIR__ . '/../partials/header.php';
                     <tbody>
                         <?php if (empty($items)): ?>
                             <tr class="empty-row">
-                                <td colspan="9">No products match these filters.</td>
+                                <td colspan="11">No products match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($items as $it): ?>
@@ -177,7 +191,9 @@ require __DIR__ . '/../partials/header.php';
                                     <td><strong><?= htmlspecialchars($it['item_name']) ?></strong></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['unit_of_measure'] ?? '—') ?></td>
-                                    <td class="cell-muted"><?= htmlspecialchars($it['brand'] ?? '—') ?></td>
+                                    <td class="cell-muted"><?= htmlspecialchars($it['brand_name'] ?? '—') ?><?= !empty($it['brand_code']) ? ' <span style="color:var(--text-muted);font-size:12px;">(' . htmlspecialchars($it['brand_code']) . ')</span>' : '' ?></td>
+                                    <td class="cell-muted"><?= htmlspecialchars($it['type_name'] ?? '—') ?></td>
+                                    <td class="cell-muted"><?= htmlspecialchars($it['location_name'] ?? '—') ?></td>
                                     <td class="cell-id"><?= (int) $it['quantity_on_hand'] ?> <span class="cell-muted">/ min <?= (int) $it['minimum_stock_level'] ?></span></td>
                                     <td>
                                         <?php if ($isOut): ?>
@@ -241,6 +257,16 @@ require __DIR__ . '/../partials/header.php';
                     <table style="width:100%;font-size:13.5px;border-collapse:collapse;">
                         <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Unit of Measure</td><td id="vpm-unit" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Brand</td><td id="vpm-brand" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Item Type</td><td id="vpm-itemtype" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Location</td><td id="vpm-location" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Model</td><td id="vpm-model" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Energy Rating</td><td id="vpm-energyrating" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Monthly Consumption</td><td id="vpm-consumption" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Cooling Capacity</td><td id="vpm-cooling" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Refrigerant</td><td id="vpm-refrigerant" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Installation Type</td><td id="vpm-installtype" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Power Input</td><td id="vpm-powerinput" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);">Year</td><td id="vpm-year" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Quantity on Hand</td><td id="vpm-stock" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Minimum Stock Level</td><td id="vpm-min" style="padding:6px 0;font-weight:600;"></td></tr>
                     </table>
@@ -281,8 +307,56 @@ require __DIR__ . '/../partials/header.php';
                         <input type="text" id="ap_unit_of_measure" name="unit_of_measure"
                                placeholder="e.g. pcs, kg, box">
 
-                        <label for="ap_brand">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" id="ap_brand" name="brand" placeholder="e.g. Daikin, Carrier">
+                        <label for="ap_brand_id">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ap_brand_id" name="brand_id" onchange="var o=this.options[this.selectedIndex];document.getElementById('ap_brand_code_display').textContent = o.dataset.code ? ('Code: ' + o.dataset.code) : '';">
+                            <option value="" data-code="">No brand</option>
+                            <?php foreach ($brands as $b): ?>
+                                <option value="<?= $b['brand_id'] ?>" data-code="<?= htmlspecialchars($b['brand_code'] ?? '') ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div id="ap_brand_code_display" style="font-size:13px;color:var(--text-muted);margin-top:-10px;margin-bottom:14px;"></div>
+
+                        <label for="ap_item_type_id">Item Type <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ap_item_type_id" name="item_type_id">
+                            <option value="">No item type</option>
+                            <?php foreach ($itemTypes as $t): ?>
+                                <option value="<?= $t['item_type_id'] ?>"><?= htmlspecialchars($t['type_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="ap_location_id">Location <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ap_location_id" name="location_id">
+                            <option value="">No location</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(all optional)</span></h3>
+
+                        <label for="ap_model">Model</label>
+                        <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM">
+
+                        <label for="ap_energy_rating">Energy Rating</label>
+                        <input type="text" id="ap_energy_rating" name="energy_rating" placeholder="e.g. 5 Star">
+
+                        <label for="ap_monthly_consumption">Monthly Consumption (kWh)</label>
+                        <input type="number" id="ap_monthly_consumption" name="monthly_consumption" min="0" step="0.01" placeholder="e.g. 120.50">
+
+                        <label for="ap_cooling_capacity">Cooling Capacity</label>
+                        <input type="text" id="ap_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)">
+
+                        <label for="ap_refrigerant">Refrigerant</label>
+                        <input type="text" id="ap_refrigerant" name="refrigerant" placeholder="e.g. R32">
+
+                        <label for="ap_installation_type">Installation Type</label>
+                        <input type="text" id="ap_installation_type" name="installation_type" placeholder="e.g. Wall Mounted">
+
+                        <label for="ap_power_input">Power Input</label>
+                        <input type="text" id="ap_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz">
+
+                        <label for="ap_year">Year</label>
+                        <input type="number" id="ap_year" name="year" min="1990" max="2100" step="1" placeholder="e.g. 2024">
 
                         <label for="ap_quantity_on_hand">Quantity on Hand</label>
                         <input type="number" id="ap_quantity_on_hand" name="quantity_on_hand" min="0" step="1" value="0" required>
@@ -337,8 +411,56 @@ require __DIR__ . '/../partials/header.php';
                         <label for="ep_unit_of_measure">Unit of Measure</label>
                         <input type="text" id="ep_unit_of_measure" name="unit_of_measure">
 
-                        <label for="ep_brand">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" id="ep_brand" name="brand" placeholder="e.g. Daikin, Carrier">
+                        <label for="ep_brand_id">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ep_brand_id" name="brand_id" onchange="var o=this.options[this.selectedIndex];document.getElementById('ep_brand_code_display').textContent = o.dataset.code ? ('Code: ' + o.dataset.code) : '';">
+                            <option value="" data-code="">No brand</option>
+                            <?php foreach ($brands as $b): ?>
+                                <option value="<?= $b['brand_id'] ?>" data-code="<?= htmlspecialchars($b['brand_code'] ?? '') ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <div id="ep_brand_code_display" style="font-size:13px;color:var(--text-muted);margin-top:-10px;margin-bottom:14px;"></div>
+
+                        <label for="ep_item_type_id">Item Type <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ep_item_type_id" name="item_type_id">
+                            <option value="">No item type</option>
+                            <?php foreach ($itemTypes as $t): ?>
+                                <option value="<?= $t['item_type_id'] ?>"><?= htmlspecialchars($t['type_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="ep_location_id">Location <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <select id="ep_location_id" name="location_id">
+                            <option value="">No location</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(all optional)</span></h3>
+
+                        <label for="ep_model">Model</label>
+                        <input type="text" id="ep_model" name="model" placeholder="e.g. FTKC50UVM">
+
+                        <label for="ep_energy_rating">Energy Rating</label>
+                        <input type="text" id="ep_energy_rating" name="energy_rating" placeholder="e.g. 5 Star">
+
+                        <label for="ep_monthly_consumption">Monthly Consumption (kWh)</label>
+                        <input type="number" id="ep_monthly_consumption" name="monthly_consumption" min="0" step="0.01" placeholder="e.g. 120.50">
+
+                        <label for="ep_cooling_capacity">Cooling Capacity</label>
+                        <input type="text" id="ep_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)">
+
+                        <label for="ep_refrigerant">Refrigerant</label>
+                        <input type="text" id="ep_refrigerant" name="refrigerant" placeholder="e.g. R32">
+
+                        <label for="ep_installation_type">Installation Type</label>
+                        <input type="text" id="ep_installation_type" name="installation_type" placeholder="e.g. Wall Mounted">
+
+                        <label for="ep_power_input">Power Input</label>
+                        <input type="text" id="ep_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz">
+
+                        <label for="ep_year">Year</label>
+                        <input type="number" id="ep_year" name="year" min="1990" max="2100" step="1" placeholder="e.g. 2024">
 
                         <label for="ep_quantity_on_hand">Quantity on Hand</label>
                         <input type="number" id="ep_quantity_on_hand" name="quantity_on_hand" min="0" step="1" required>
@@ -467,7 +589,17 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vpm-category').textContent = p.category_name || 'Uncategorized';
             document.getElementById('vpm-description').textContent = p.description || 'No description provided.';
             document.getElementById('vpm-unit').textContent = p.unit_of_measure || '—';
-            document.getElementById('vpm-brand').textContent = p.brand || '—';
+            document.getElementById('vpm-brand').textContent = p.brand_name ? (p.brand_name + (p.brand_code ? ' (Code: ' + p.brand_code + ')' : '')) : '—';
+            document.getElementById('vpm-itemtype').textContent = p.type_name || '—';
+            document.getElementById('vpm-location').textContent = p.location_name || '—';
+            document.getElementById('vpm-model').textContent = p.model || '—';
+            document.getElementById('vpm-energyrating').textContent = p.energy_rating || '—';
+            document.getElementById('vpm-consumption').textContent = p.monthly_consumption ? (p.monthly_consumption + ' kWh/mo') : '—';
+            document.getElementById('vpm-cooling').textContent = p.cooling_capacity || '—';
+            document.getElementById('vpm-refrigerant').textContent = p.refrigerant || '—';
+            document.getElementById('vpm-installtype').textContent = p.installation_type || '—';
+            document.getElementById('vpm-powerinput').textContent = p.power_input || '—';
+            document.getElementById('vpm-year').textContent = p.year || '—';
             document.getElementById('vpm-stock').textContent = p.quantity_on_hand;
             document.getElementById('vpm-min').textContent = p.minimum_stock_level;
 
@@ -529,7 +661,19 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('ep_item_name').value = p.item_name || '';
             document.getElementById('ep_description').value = p.description || '';
             document.getElementById('ep_unit_of_measure').value = p.unit_of_measure || '';
-            document.getElementById('ep_brand').value = p.brand || '';
+            document.getElementById('ep_brand_id').value = p.brand_id || '';
+            var epBrandOpt = document.getElementById('ep_brand_id').options[document.getElementById('ep_brand_id').selectedIndex];
+            document.getElementById('ep_brand_code_display').textContent = (epBrandOpt && epBrandOpt.dataset.code) ? ('Code: ' + epBrandOpt.dataset.code) : '';
+            document.getElementById('ep_item_type_id').value = p.item_type_id || '';
+            document.getElementById('ep_location_id').value = p.location_id || '';
+            document.getElementById('ep_model').value = p.model || '';
+            document.getElementById('ep_energy_rating').value = p.energy_rating || '';
+            document.getElementById('ep_monthly_consumption').value = p.monthly_consumption || '';
+            document.getElementById('ep_cooling_capacity').value = p.cooling_capacity || '';
+            document.getElementById('ep_refrigerant').value = p.refrigerant || '';
+            document.getElementById('ep_installation_type').value = p.installation_type || '';
+            document.getElementById('ep_power_input').value = p.power_input || '';
+            document.getElementById('ep_year').value = p.year || '';
             document.getElementById('ep_quantity_on_hand').value = p.quantity_on_hand;
             document.getElementById('ep_minimum_stock_level').value = p.minimum_stock_level;
             document.getElementById('ep_category_id').value = p.category_id || '';

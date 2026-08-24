@@ -2,7 +2,7 @@
 /**
  * Views/partials/header.php
  * Expects: $pageTitle (string), $activeSection ('dashboard'|'inventory'|'settings'),
- *          $activeSubNav ('products'|'transactions'|'categories') when in inventory
+ *          $activeSubNav ('products'|'transactions'|'categories'|'brands'|'itemtypes'|'locations') when in inventory
  */
 $pageTitle = $pageTitle ?? 'CoolStock';
 $activeSection = $activeSection ?? 'dashboard';

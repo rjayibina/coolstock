@@ -5,7 +5,10 @@ require_once __DIR__ . '/../Config/Database.php';
  * InventoryItem.php (Model)
  * Maps to the inventory_items table from the ERD:
  * item_id(PK), category_id(FK), item_name, description,
- * unit_of_measure, brand, quantity_on_hand, minimum_stock_level
+ * unit_of_measure, brand_id(FK), item_type_id(FK), location_id(FK),
+ * model, energy_rating, monthly_consumption, cooling_capacity,
+ * refrigerant, installation_type, power_input, year,
+ * quantity_on_hand, minimum_stock_level
  */
 class InventoryItem
 {
@@ -17,7 +20,17 @@ class InventoryItem
     public ?string $item_name = null;
     public ?string $description = null;
     public ?string $unit_of_measure = null;
-    public ?string $brand = null;
+    public ?int $brand_id = null;
+    public ?int $item_type_id = null;
+    public ?int $location_id = null;
+    public ?string $model = null;
+    public ?string $energy_rating = null;
+    public ?float $monthly_consumption = null;
+    public ?string $cooling_capacity = null;
+    public ?string $refrigerant = null;
+    public ?string $installation_type = null;
+    public ?string $power_input = null;
+    public ?int $year = null;
     public ?int $quantity_on_hand = null;
     public ?int $minimum_stock_level = null;
     public ?string $image_path = null;
@@ -31,10 +44,12 @@ class InventoryItem
     public function create(): bool
     {
         $query = "INSERT INTO {$this->table}
-                    (category_id, item_name, description, unit_of_measure, brand,
+                    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
+                     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
                      quantity_on_hand, minimum_stock_level, image_path)
                   VALUES
-                    (:category_id, :item_name, :description, :unit_of_measure, :brand,
+                    (:category_id, :item_name, :description, :unit_of_measure, :brand_id, :item_type_id, :location_id,
+                     :model, :energy_rating, :monthly_consumption, :cooling_capacity, :refrigerant, :installation_type, :power_input, :year,
                      :quantity_on_hand, :minimum_stock_level, :image_path)";
 
         $stmt = $this->conn->prepare($query);
@@ -46,7 +61,37 @@ class InventoryItem
         $stmt->bindParam(':item_name', $this->item_name);
         $stmt->bindParam(':description', $this->description);
         $stmt->bindParam(':unit_of_measure', $this->unit_of_measure);
-        $stmt->bindParam(':brand', $this->brand);
+        if ($this->brand_id === null) {
+            $stmt->bindValue(':brand_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':brand_id', $this->brand_id, PDO::PARAM_INT);
+        }
+        if ($this->item_type_id === null) {
+            $stmt->bindValue(':item_type_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':item_type_id', $this->item_type_id, PDO::PARAM_INT);
+        }
+        if ($this->location_id === null) {
+            $stmt->bindValue(':location_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':location_id', $this->location_id, PDO::PARAM_INT);
+        }
+        $stmt->bindParam(':model', $this->model);
+        $stmt->bindParam(':energy_rating', $this->energy_rating);
+        if ($this->monthly_consumption === null) {
+            $stmt->bindValue(':monthly_consumption', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':monthly_consumption', $this->monthly_consumption);
+        }
+        $stmt->bindParam(':cooling_capacity', $this->cooling_capacity);
+        $stmt->bindParam(':refrigerant', $this->refrigerant);
+        $stmt->bindParam(':installation_type', $this->installation_type);
+        $stmt->bindParam(':power_input', $this->power_input);
+        if ($this->year === null) {
+            $stmt->bindValue(':year', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':year', $this->year, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':quantity_on_hand', $this->quantity_on_hand, PDO::PARAM_INT);
         $stmt->bindParam(':minimum_stock_level', $this->minimum_stock_level, PDO::PARAM_INT);
         $stmt->bindParam(':image_path', $this->image_path);
@@ -74,14 +119,17 @@ class InventoryItem
     ];
 
     /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
-    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    public function readAll(?string $categoryId = null, ?string $stockStatus = null, ?string $sort = null, ?int $limit = null, ?int $offset = null, ?string $locationId = null): array
     {
-        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus);
+        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $locationId);
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
 
-        $query = "SELECT i.*, c.category_name, c.requires_serial
+        $query = "SELECT i.*, c.category_name, c.requires_serial, b.brand_name, b.brand_code, t.type_name, l.location_name
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
+                  LEFT JOIN brands b ON i.brand_id = b.brand_id
+                  LEFT JOIN item_types t ON i.item_type_id = t.item_type_id
+                  LEFT JOIN locations l ON i.location_id = l.location_id
                   WHERE {$where}
                   ORDER BY {$orderBy}";
 
@@ -102,9 +150,9 @@ class InventoryItem
     }
 
     /** Count of items matching the same filters as readAll() - powers pagination */
-    public function countFiltered(?string $categoryId = null, ?string $stockStatus = null): int
+    public function countFiltered(?string $categoryId = null, ?string $stockStatus = null, ?string $locationId = null): int
     {
-        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus);
+        [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $locationId);
         $query = "SELECT COUNT(*) AS total FROM {$this->table} i WHERE {$where}";
         $stmt = $this->conn->prepare($query);
         foreach ($params as $key => $value) {
@@ -115,7 +163,7 @@ class InventoryItem
     }
 
     /** Shared WHERE-clause builder for readAll() and countFiltered() so the two never drift apart */
-    private function buildFilterClause(?string $categoryId, ?string $stockStatus): array
+    private function buildFilterClause(?string $categoryId, ?string $stockStatus, ?string $locationId = null): array
     {
         $where = "1=1";
         $params = [];
@@ -125,6 +173,12 @@ class InventoryItem
         } elseif ($categoryId !== null && $categoryId !== '') {
             $where .= " AND i.category_id = :category_id";
             $params[':category_id'] = (int) $categoryId;
+        }
+        if ($locationId === 'none') {
+            $where .= " AND i.location_id IS NULL";
+        } elseif ($locationId !== null && $locationId !== '') {
+            $where .= " AND i.location_id = :location_id";
+            $params[':location_id'] = (int) $locationId;
         }
         if ($stockStatus === 'out_of_stock') {
             $where .= " AND i.quantity_on_hand = 0";
@@ -150,9 +204,12 @@ class InventoryItem
     /** READ - single item by id, joined with category name */
     public function readOne(int $id): array|false
     {
-        $query = "SELECT i.*, c.category_name, c.requires_serial
+        $query = "SELECT i.*, c.category_name, c.requires_serial, b.brand_name, b.brand_code, t.type_name, l.location_name
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
+                  LEFT JOIN brands b ON i.brand_id = b.brand_id
+                  LEFT JOIN item_types t ON i.item_type_id = t.item_type_id
+                  LEFT JOIN locations l ON i.location_id = l.location_id
                   WHERE i.item_id = :id LIMIT 1";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
@@ -168,7 +225,17 @@ class InventoryItem
                     item_name = :item_name,
                     description = :description,
                     unit_of_measure = :unit_of_measure,
-                    brand = :brand,
+                    brand_id = :brand_id,
+                    item_type_id = :item_type_id,
+                    location_id = :location_id,
+                    model = :model,
+                    energy_rating = :energy_rating,
+                    monthly_consumption = :monthly_consumption,
+                    cooling_capacity = :cooling_capacity,
+                    refrigerant = :refrigerant,
+                    installation_type = :installation_type,
+                    power_input = :power_input,
+                    year = :year,
                     quantity_on_hand = :quantity_on_hand,
                     minimum_stock_level = :minimum_stock_level,
                     image_path = :image_path
@@ -183,7 +250,37 @@ class InventoryItem
         $stmt->bindParam(':item_name', $this->item_name);
         $stmt->bindParam(':description', $this->description);
         $stmt->bindParam(':unit_of_measure', $this->unit_of_measure);
-        $stmt->bindParam(':brand', $this->brand);
+        if ($this->brand_id === null) {
+            $stmt->bindValue(':brand_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':brand_id', $this->brand_id, PDO::PARAM_INT);
+        }
+        if ($this->item_type_id === null) {
+            $stmt->bindValue(':item_type_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':item_type_id', $this->item_type_id, PDO::PARAM_INT);
+        }
+        if ($this->location_id === null) {
+            $stmt->bindValue(':location_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':location_id', $this->location_id, PDO::PARAM_INT);
+        }
+        $stmt->bindParam(':model', $this->model);
+        $stmt->bindParam(':energy_rating', $this->energy_rating);
+        if ($this->monthly_consumption === null) {
+            $stmt->bindValue(':monthly_consumption', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':monthly_consumption', $this->monthly_consumption);
+        }
+        $stmt->bindParam(':cooling_capacity', $this->cooling_capacity);
+        $stmt->bindParam(':refrigerant', $this->refrigerant);
+        $stmt->bindParam(':installation_type', $this->installation_type);
+        $stmt->bindParam(':power_input', $this->power_input);
+        if ($this->year === null) {
+            $stmt->bindValue(':year', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':year', $this->year, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':quantity_on_hand', $this->quantity_on_hand, PDO::PARAM_INT);
         $stmt->bindParam(':minimum_stock_level', $this->minimum_stock_level, PDO::PARAM_INT);
         $stmt->bindParam(':image_path', $this->image_path);

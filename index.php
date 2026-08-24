@@ -2,13 +2,16 @@
 /**
  * index.php
  * Front controller: every request comes through here first.
- * ?module=dashboard|categories|products|transactions
+ * ?module=dashboard|categories|products|transactions|brands|itemtypes|locations
  * ?action=index|create|edit|delete
  */
 require_once __DIR__ . '/Controllers/DashboardController.php';
 require_once __DIR__ . '/Controllers/CategoryController.php';
 require_once __DIR__ . '/Controllers/InventoryItemController.php';
 require_once __DIR__ . '/Controllers/TransactionController.php';
+require_once __DIR__ . '/Controllers/BrandController.php';
+require_once __DIR__ . '/Controllers/ItemTypeController.php';
+require_once __DIR__ . '/Controllers/LocationController.php';
 
 $module = $_GET['module'] ?? 'dashboard';
 $action = $_GET['action'] ?? 'index';
@@ -22,6 +25,15 @@ switch ($module) {
         break;
     case 'transactions':
         $controller = new TransactionController();
+        break;
+    case 'brands':
+        $controller = new BrandController();
+        break;
+    case 'itemtypes':
+        $controller = new ItemTypeController();
+        break;
+    case 'locations':
+        $controller = new LocationController();
         break;
     case 'dashboard':
     default:

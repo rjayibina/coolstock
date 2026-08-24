@@ -229,6 +229,7 @@ require __DIR__ . '/../partials/header.php';
                         <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Quantity</td><td id="vtm-quantity" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Technician</td><td id="vtm-technician" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Date</td><td id="vtm-date" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr id="vtm-serial-row" style="display:none;"><td style="padding:6px 0;color:var(--text-muted);">Serial Number</td><td id="vtm-serial" style="padding:6px 0;font-weight:600;"></td></tr>
                     </table>
                     <div style="margin-top:14px;">
                         <div style="color:var(--text-muted);font-size:12.5px;font-weight:600;margin-bottom:4px;">Notes</div>
@@ -277,6 +278,14 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vtm-technician').textContent = t.source === 'auto' ? 'System' : (t.technician_name || '—');
             document.getElementById('vtm-date').textContent = t.created_at;
             document.getElementById('vtm-notes').textContent = t.notes || 'No notes for this transaction.';
+
+            const serialRow = document.getElementById('vtm-serial-row');
+            if (t.transaction_type === 'stock_out' && t.serial_number) {
+                document.getElementById('vtm-serial').textContent = t.serial_number;
+                serialRow.style.display = '';
+            } else {
+                serialRow.style.display = 'none';
+            }
 
             const typeEl = document.getElementById('vtm-type');
             typeEl.textContent = t.transaction_type.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());
