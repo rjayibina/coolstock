@@ -124,7 +124,7 @@ class InventoryItem
         [$where, $params] = $this->buildFilterClause($categoryId, $stockStatus, $locationId);
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
 
-        $query = "SELECT i.*, c.category_name, c.requires_serial, b.brand_name, b.brand_code, t.type_name, l.location_name
+        $query = "SELECT i.*, c.category_name, COALESCE(t.requires_serial, 1) AS requires_serial, b.brand_name, b.brand_code, t.type_name, l.location_name
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   LEFT JOIN brands b ON i.brand_id = b.brand_id
@@ -204,7 +204,7 @@ class InventoryItem
     /** READ - single item by id, joined with category name */
     public function readOne(int $id): array|false
     {
-        $query = "SELECT i.*, c.category_name, c.requires_serial, b.brand_name, b.brand_code, t.type_name, l.location_name
+        $query = "SELECT i.*, c.category_name, COALESCE(t.requires_serial, 1) AS requires_serial, b.brand_name, b.brand_code, t.type_name, l.location_name
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   LEFT JOIN brands b ON i.brand_id = b.brand_id

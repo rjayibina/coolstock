@@ -1,8 +1,9 @@
 -- ============================================================
 -- CoolStock / Mister Aircon Inventory System
--- FULL SETUP: schema (current state, all Phases 1-5 baked in) + demo seed data
+-- FULL SETUP: schema (current state, all Phases 1-5 + the Category-required
+-- and Item-Type-driven-serial changes baked in) + demo seed data
 -- ============================================================
--- Use this on a fresh/empty database - it replaces running all 12
+-- Use this on a fresh/empty database - it replaces running all 13
 -- individual migration files one by one. Run it top to bottom in
 -- phpMyAdmin's SQL tab.
 --
@@ -22,10 +23,6 @@ CREATE TABLE item_categories (
     category_id INT AUTO_INCREMENT PRIMARY KEY,
     category_name VARCHAR(100) NOT NULL,
     category_description TEXT,
-    -- Whether products in this category get a Serial Number requirement on
-    -- Stock Out (1 = yes, e.g. whole units/parts; 0 = no, e.g. tools and
-    -- cleaning/repair materials).
-    requires_serial TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,6 +38,12 @@ CREATE TABLE brands (
 CREATE TABLE item_types (
     item_type_id INT AUTO_INCREMENT PRIMARY KEY,
     type_name VARCHAR(100) NOT NULL,
+    -- Whether products of this item type get a Serial Number requirement on
+    -- Stock Out (1 = yes, e.g. Asset; 0 = no, e.g. Consumable). A product
+    -- with NO item type assigned (it's optional) is treated as REQUIRING a
+    -- serial number - the safer default (see InventoryItem::readAll()/
+    -- readOne(), which use COALESCE(t.requires_serial, 1)).
+    requires_serial TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -137,12 +140,12 @@ CREATE TABLE reports (
 -- ============================================================
 
 -- ---- Categories (category_id 1-5) ----
-INSERT INTO item_categories (category_name, category_description, requires_serial) VALUES
-('Split Type AC', 'Wall-mounted split-type air conditioning units, indoor + outdoor unit pairs.', 1),
-('Window Type AC', 'Self-contained window/wall-box air conditioning units.', 1),
-('Floor Mounted AC', 'Floor-standing air conditioning units for larger open areas.', 1),
-('Cassette Type AC', 'Ceiling cassette air conditioning units for commercial spaces.', 1),
-('Consumables & Spare Parts', 'Refrigerant, insulation, mounting hardware, and other non-serialized supplies.', 0);
+INSERT INTO item_categories (category_name, category_description) VALUES
+('Split Type AC', 'Wall-mounted split-type air conditioning units, indoor + outdoor unit pairs.'),
+('Window Type AC', 'Self-contained window/wall-box air conditioning units.'),
+('Floor Mounted AC', 'Floor-standing air conditioning units for larger open areas.'),
+('Cassette Type AC', 'Ceiling cassette air conditioning units for commercial spaces.'),
+('Consumables & Spare Parts', 'Refrigerant, insulation, mounting hardware, and other non-serialized supplies.');
 
 -- ---- Brands (brand_id 1-6) ----
 INSERT INTO brands (brand_name, brand_code) VALUES
@@ -153,8 +156,9 @@ INSERT INTO brands (brand_name, brand_code) VALUES
 ('Samsung', '059'),
 ('Mitsubishi Electric', '033');
 
--- ---- Item Types (item_type_id 1-2) ----
-INSERT INTO item_types (type_name) VALUES ('Asset'), ('Consumable');
+-- ---- Item Types (item_type_id 1-2) - requires_serial drives Stock Out's
+-- Serial Number requirement now (Asset = required, Consumable = not) ----
+INSERT INTO item_types (type_name, requires_serial) VALUES ('Asset', 1), ('Consumable', 0);
 
 -- ---- Locations (location_id 1-2) ----
 INSERT INTO locations (location_name) VALUES ('Main Store'), ('Warehouse');

@@ -12,6 +12,10 @@ class ItemType
 
     public ?int $item_type_id = null;
     public ?string $type_name = null;
+    // Whether products of this item type get a Serial Number requirement on
+    // Stock Out (1 = yes, e.g. Asset; 0 = no, e.g. Consumable). See
+    // migration_move_requires_serial_to_itemtype.sql.
+    public int $requires_serial = 1;
     public ?string $created_at = null;
 
     public function __construct()
@@ -22,9 +26,10 @@ class ItemType
     /** CREATE - insert a new item type */
     public function create(): bool
     {
-        $query = "INSERT INTO {$this->table} (type_name) VALUES (:type_name)";
+        $query = "INSERT INTO {$this->table} (type_name, requires_serial) VALUES (:type_name, :requires_serial)";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':type_name', $this->type_name);
+        $stmt->bindParam(':requires_serial', $this->requires_serial, PDO::PARAM_INT);
         return $stmt->execute();
     }
 
@@ -50,9 +55,10 @@ class ItemType
     /** UPDATE - edit an existing item type */
     public function update(): bool
     {
-        $query = "UPDATE {$this->table} SET type_name = :type_name WHERE item_type_id = :item_type_id";
+        $query = "UPDATE {$this->table} SET type_name = :type_name, requires_serial = :requires_serial WHERE item_type_id = :item_type_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':type_name', $this->type_name);
+        $stmt->bindParam(':requires_serial', $this->requires_serial, PDO::PARAM_INT);
         $stmt->bindParam(':item_type_id', $this->item_type_id, PDO::PARAM_INT);
         return $stmt->execute();
     }

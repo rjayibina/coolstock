@@ -30,17 +30,14 @@ $old = $_POST ?? [];
                 <input type="file" id="product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
                        style="margin-bottom:18px;">
 
-                <?php
-                $selectedCategoryId = $old['category_id'] ?? '';
-                $selectedCategoryName = '';
-                foreach ($categories as $cat) {
-                    if ((string) $cat['category_id'] === (string) $selectedCategoryId) {
-                        $selectedCategoryName = $cat['category_name'];
-                        break;
-                    }
-                }
-                require __DIR__ . '/../partials/category-combobox.php';
-                ?>
+                <?php $selectedCategoryId = $old['category_id'] ?? ''; ?>
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id" required>
+                    <option value="" disabled <?= $selectedCategoryId === '' ? 'selected' : '' ?>>Select a category</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?= $cat['category_id'] ?>" <?= (string) $selectedCategoryId === (string) $cat['category_id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['category_name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
 
                 <label for="item_name">Product Name</label>
                 <input type="text" id="item_name" name="item_name"

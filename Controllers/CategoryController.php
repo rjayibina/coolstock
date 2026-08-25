@@ -16,38 +16,6 @@ class CategoryController
         $this->category = new Category();
     }
 
-    /** AJAX endpoint - creates a category from the inline "Add new category"
-     *  control in the Product form's category combobox, returns JSON */
-    public function quickCreate(): void
-    {
-        header('Content-Type: application/json');
-        $name = trim($_POST['category_name'] ?? '');
-
-        if ($name === '') {
-            http_response_code(422);
-            echo json_encode(['error' => 'Category name is required.']);
-            exit;
-        }
-
-        $existing = array_filter($this->category->readAll(), fn($c) => strcasecmp($c['category_name'], $name) === 0);
-        if (!empty($existing)) {
-            $match = array_values($existing)[0];
-            echo json_encode(['id' => (int) $match['category_id'], 'name' => $match['category_name']]);
-            exit;
-        }
-
-        $this->category->category_name = $name;
-        $this->category->category_description = '';
-
-        if ($this->category->create()) {
-            echo json_encode(['id' => $this->category->lastInsertId(), 'name' => $name]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['error' => 'Could not create the category.']);
-        }
-        exit;
-    }
-
     /** List all categories, each with its product count */
     public function index(): void
     {
@@ -65,14 +33,12 @@ class CategoryController
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim($_POST['category_name'] ?? '');
             $description = trim($_POST['category_description'] ?? '');
-            $requiresSerial = isset($_POST['requires_serial']) ? 1 : 0;
 
             if ($name === '') {
                 $error = "Category name is required.";
             } else {
                 $this->category->category_name = $name;
                 $this->category->category_description = $description;
-                $this->category->requires_serial = $requiresSerial;
 
                 if ($this->category->create()) {
                     header("Location: index.php?module=categories&action=index&status=created");
@@ -99,16 +65,14 @@ class CategoryController
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim($_POST['category_name'] ?? '');
             $description = trim($_POST['category_description'] ?? '');
-            $requiresSerial = isset($_POST['requires_serial']) ? 1 : 0;
 
             if ($name === '') {
                 $error = "Category name is required.";
-                $data = ['category_id' => $id, 'category_name' => $name, 'category_description' => $description, 'requires_serial' => $requiresSerial];
+                $data = ['category_id' => $id, 'category_name' => $name, 'category_description' => $description];
             } else {
                 $this->category->category_id = $id;
                 $this->category->category_name = $name;
                 $this->category->category_description = $description;
-                $this->category->requires_serial = $requiresSerial;
 
                 if ($this->category->update()) {
                     header("Location: index.php?module=categories&action=index&status=updated");

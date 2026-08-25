@@ -289,11 +289,13 @@ require __DIR__ . '/../partials/header.php';
                         <label for="ap_product_image">Product Image</label>
                         <input type="file" id="ap_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp">
 
-                        <?php
-                        $selectedCategoryId = '';
-                        $selectedCategoryName = '';
-                        require __DIR__ . '/../partials/category-combobox.php';
-                        ?>
+                        <label for="ap_category_id">Category</label>
+                        <select id="ap_category_id" name="category_id" required>
+                            <option value="" disabled selected>Select a category</option>
+                            <?php foreach ($categories as $cat): ?>
+                                <option value="<?= $cat['category_id'] ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
 
                         <label for="ap_item_name">Product Name</label>
                         <input type="text" id="ap_item_name" name="item_name"
@@ -394,9 +396,9 @@ require __DIR__ . '/../partials/header.php';
                         <input type="file" id="ep_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp">
                         <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave empty to keep the current image, or choose a new file to replace it.</div>
 
-                        <label for="ep_category_id">Category <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ep_category_id" name="category_id">
-                            <option value="">Uncategorized</option>
+                        <label for="ep_category_id">Category</label>
+                        <select id="ep_category_id" name="category_id" required>
+                            <option value="" disabled>Select a category</option>
                             <?php foreach ($categories as $cat): ?>
                                 <option value="<?= $cat['category_id'] ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
                             <?php endforeach; ?>

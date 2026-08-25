@@ -356,7 +356,11 @@ class InventoryItemController
                 $skipped[] = "Row $rowNum: missing item_name.";
                 continue;
             }
-            if ($categoryName !== '' && !isset($categoryByName[$categoryName])) {
+            if ($categoryName === '') {
+                $skipped[] = "Row $rowNum: missing category_name (category is required).";
+                continue;
+            }
+            if (!isset($categoryByName[$categoryName])) {
                 $skipped[] = "Row $rowNum: category \"" . ($row[$col['category_name']] ?? '') . "\" not found.";
                 continue;
             }
@@ -423,6 +427,9 @@ class InventoryItemController
     {
         if (trim($input['item_name'] ?? '') === '') {
             return "Product name is required.";
+        }
+        if (empty($input['category_id'])) {
+            return "Category is required.";
         }
         if (!is_numeric($input['quantity_on_hand'] ?? '') || $input['quantity_on_hand'] < 0) {
             return "Quantity on hand must be a non-negative number.";

@@ -32,6 +32,7 @@ class ItemTypeController
         }
 
         $this->itemType->type_name = $name;
+        $this->itemType->requires_serial = isset($_POST['requires_serial']) ? 1 : 0;
 
         if ($this->itemType->create()) {
             header("Location: index.php?module=itemtypes&action=index&status=created");
@@ -60,6 +61,7 @@ class ItemTypeController
 
         $this->itemType->item_type_id = $id;
         $this->itemType->type_name = $name;
+        $this->itemType->requires_serial = isset($_POST['requires_serial']) ? 1 : 0;
 
         if ($this->itemType->update()) {
             header("Location: index.php?module=itemtypes&action=index&status=updated");

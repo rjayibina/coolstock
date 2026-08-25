@@ -22,8 +22,8 @@ class Transaction
     public ?string $transaction_type = null;
     public ?int $quantity = null;
     // The serial number of the specific unit taken out, for Stock Out on
-    // categories that require one (see migration_category_requires_serial.sql).
-    // Always null for Stock In and for non-serialized categories.
+    // item types that require one (see migration_move_requires_serial_to_itemtype.sql).
+    // Always null for Stock In and for non-serialized item types.
     public ?string $serial_number = null;
     // The date the stock movement actually happened (defaults to today if
     // not supplied). Separate from created_at, which is just the audit

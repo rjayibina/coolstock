@@ -46,6 +46,7 @@ require __DIR__ . '/../partials/header.php';
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>Requires Serial?</th>
                         <th>Added</th>
                         <th style="width:150px;">Actions</th>
                     </tr>
@@ -53,12 +54,13 @@ require __DIR__ . '/../partials/header.php';
                 <tbody>
                     <?php if (empty($itemTypes)): ?>
                         <tr class="empty-row">
-                            <td colspan="3">No item types yet. Use "Add Item Type" to create your first one.</td>
+                            <td colspan="4">No item types yet. Use "Add Item Type" to create your first one.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($itemTypes as $t): ?>
                             <tr>
                                 <td><strong><?= htmlspecialchars($t['type_name']) ?></strong></td>
+                                <td class="cell-muted"><?= !empty($t['requires_serial']) ? 'Yes' : 'No' ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars($t['created_at']) ?></td>
                                 <td class="actions">
                                     <button type="button" class="btn btn-edit btn-sm" onclick="openEditItemTypeModal(<?= $t['item_type_id'] ?>)">Edit</button>
@@ -82,6 +84,12 @@ require __DIR__ . '/../partials/header.php';
                         <label for="ait_type_name">Name</label>
                         <input type="text" id="ait_type_name" name="type_name" placeholder="e.g. Asset, Consumable" required>
 
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;color:var(--text-dark);margin-bottom:18px;">
+                            <input type="checkbox" id="ait_requires_serial" name="requires_serial" value="1" checked style="width:auto;margin:0;">
+                            Requires a serial number when stock is taken out
+                        </label>
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave checked for types like Asset. Uncheck for types like Consumable.</div>
+
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Item Type</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('addItemTypeModal')">Cancel</button>
@@ -103,6 +111,12 @@ require __DIR__ . '/../partials/header.php';
 
                         <label for="eit_type_name">Name</label>
                         <input type="text" id="eit_type_name" name="type_name" required>
+
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;font-size:13px;color:var(--text-dark);margin-bottom:18px;">
+                            <input type="checkbox" id="eit_requires_serial" name="requires_serial" value="1" style="width:auto;margin:0;">
+                            Requires a serial number when stock is taken out
+                        </label>
+                        <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave checked for types like Asset. Uncheck for types like Consumable.</div>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Item Type</button>
@@ -147,6 +161,7 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('eit_item_type_id').value = id;
             document.getElementById('editItemTypeForm').action = 'index.php?module=itemtypes&action=edit&id=' + id;
             document.getElementById('eit_type_name').value = t.type_name || '';
+            document.getElementById('eit_requires_serial').checked = Number(t.requires_serial) === 1;
 
             document.getElementById('editItemTypeModal').classList.add('open');
         }

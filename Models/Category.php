@@ -15,10 +15,6 @@ class Category
     public ?int $category_id = null;
     public ?string $category_name = null;
     public ?string $category_description = null;
-    // Whether products in this category get a Serial Number requirement on
-    // Stock Out (1 = yes, e.g. whole units/parts; 0 = no, e.g. tools and
-    // cleaning/repair materials). See migration_category_requires_serial.sql.
-    public int $requires_serial = 1;
     public ?string $created_at = null;
 
     public function __construct()
@@ -29,21 +25,14 @@ class Category
     /** CREATE - insert a new category */
     public function create(): bool
     {
-        $query = "INSERT INTO {$this->table} (category_name, category_description, requires_serial)
-                  VALUES (:category_name, :category_description, :requires_serial)";
+        $query = "INSERT INTO {$this->table} (category_name, category_description)
+                  VALUES (:category_name, :category_description)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':category_name', $this->category_name);
         $stmt->bindParam(':category_description', $this->category_description);
-        $stmt->bindParam(':requires_serial', $this->requires_serial, PDO::PARAM_INT);
 
         return $stmt->execute();
-    }
-
-    /** The auto-increment id of the row just inserted by create() */
-    public function lastInsertId(): int
-    {
-        return (int) $this->conn->lastInsertId();
     }
 
     /** READ - get every category, most recent first */
@@ -115,14 +104,12 @@ class Category
     {
         $query = "UPDATE {$this->table}
                   SET category_name = :category_name,
-                      category_description = :category_description,
-                      requires_serial = :requires_serial
+                      category_description = :category_description
                   WHERE category_id = :category_id";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':category_name', $this->category_name);
         $stmt->bindParam(':category_description', $this->category_description);
-        $stmt->bindParam(':requires_serial', $this->requires_serial, PDO::PARAM_INT);
         $stmt->bindParam(':category_id', $this->category_id, PDO::PARAM_INT);
 
         return $stmt->execute();

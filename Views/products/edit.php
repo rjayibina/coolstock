@@ -41,11 +41,14 @@ require __DIR__ . '/../partials/header.php';
                        style="margin-bottom:18px;">
                 <div style="font-size:12px;color:var(--text-muted);margin-top:-14px;margin-bottom:18px;">Leave empty to keep the current image, or choose a new file to replace it.</div>
 
-                <?php
-                $selectedCategoryId = $data['category_id'] ?? '';
-                $selectedCategoryName = $data['category_name'] ?? '';
-                require __DIR__ . '/../partials/category-combobox.php';
-                ?>
+                <?php $selectedCategoryId = $data['category_id'] ?? ''; ?>
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id" required>
+                    <option value="" disabled <?= $selectedCategoryId === '' ? 'selected' : '' ?>>Select a category</option>
+                    <?php foreach ($categories as $cat): ?>
+                        <option value="<?= $cat['category_id'] ?>" <?= (string) $selectedCategoryId === (string) $cat['category_id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['category_name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
 
                 <label for="item_name">Product Name</label>
                 <input type="text" id="item_name" name="item_name"
