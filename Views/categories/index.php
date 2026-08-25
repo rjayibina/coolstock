@@ -1,7 +1,8 @@
 <?php
 /**
  * Views/categories/index.php
- * Expects: $categories (array of rows from item_categories, each with product_count)
+ * Expects: $categories (array of rows from item_categories, each with product_count),
+ *          $pagination (array: page, perPage, totalCount, totalPages)
  */
 $status = $_GET['status'] ?? null;
 $bulkCount = (int) ($_GET['count'] ?? 0);
@@ -11,8 +12,18 @@ $currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Categories';
 $activeSection = 'inventory';
 $activeSubNav = 'categories';
-$count = count($categories);
+$count = $pagination['totalCount'];
 require __DIR__ . '/../partials/header.php';
+
+// Builds a pagination link that keeps the current filters
+function categoryPageUrl(int $page): string
+{
+    global $currentHasProducts, $currentSort;
+    return "index.php?module=categories&action=index"
+        . "&has_products=" . urlencode($currentHasProducts)
+        . "&sort=" . urlencode($currentSort)
+        . "&page=" . $page;
+}
 ?>
         <div class="page-header">
             <div class="page-title-group">
@@ -101,7 +112,7 @@ require __DIR__ . '/../partials/header.php';
                     <tbody>
                         <?php if (empty($categories)): ?>
                             <tr class="empty-row">
-                                <td colspan="6">No categories yet. Use "Add Category" to create your first one.</td>
+                                <td colspan="6">No categories match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($categories as $cat): ?>
@@ -122,6 +133,23 @@ require __DIR__ . '/../partials/header.php';
                 </table>
             </div>
         </form>
+
+        <?php if ($pagination['totalCount'] > 0): ?>
+            <?php
+            $startRow = ($pagination['page'] - 1) * $pagination['perPage'] + 1;
+            $endRow = min($pagination['page'] * $pagination['perPage'], $pagination['totalCount']);
+            ?>
+            <div class="pagination-bar">
+                <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> categories</span>
+                <div class="pagination-controls">
+                    <a href="<?= categoryPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
+                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
+                        <a href="<?= categoryPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                    <?php endfor; ?>
+                    <a href="<?= categoryPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <div id="addCategoryModal" class="modal-overlay" onclick="if(event.target===this) closeModal('addCategoryModal')">
             <div class="modal-dialog">

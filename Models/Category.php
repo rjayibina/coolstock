@@ -56,7 +56,7 @@ class Category
     ];
 
     /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
-    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null): array
+    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
         $query = "SELECT c.*, COUNT(i.item_id) AS product_count
                   FROM {$this->table} c
@@ -71,9 +71,39 @@ class Category
 
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
         $query .= " ORDER BY {$orderBy}";
+
+        if ($limit !== null) {
+            $query .= " LIMIT :limit OFFSET :offset";
+        }
+
         $stmt = $this->conn->prepare($query);
+        if ($limit !== null) {
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset ?? 0, PDO::PARAM_INT);
+        }
         $stmt->execute();
         return $stmt->fetchAll();
+    }
+
+    /** Count of categories matching the same filter as readAllWithCounts() - powers pagination */
+    public function countFiltered(?string $productFilter = null): int
+    {
+        $query = "SELECT COUNT(*) AS total FROM (
+                    SELECT c.category_id, COUNT(i.item_id) AS product_count
+                    FROM {$this->table} c
+                    LEFT JOIN inventory_items i ON i.category_id = c.category_id
+                    GROUP BY c.category_id";
+
+        if ($productFilter === 'has') {
+            $query .= " HAVING product_count > 0";
+        } elseif ($productFilter === 'empty') {
+            $query .= " HAVING product_count = 0";
+        }
+
+        $query .= ") AS sub";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
     }
 
     /** Product count per category - used for the Dashboard bar chart */

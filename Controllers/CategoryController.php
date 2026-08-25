@@ -9,6 +9,8 @@ require_once __DIR__ . '/../Models/InventoryItem.php';
  */
 class CategoryController
 {
+    private const PER_PAGE = 10;
+
     private Category $category;
 
     public function __construct()
@@ -16,12 +18,27 @@ class CategoryController
         $this->category = new Category();
     }
 
-    /** List all categories, each with its product count */
+    /** List all categories, each with its product count, filtered/sorted/paginated */
     public function index(): void
     {
         $productFilter = $_GET['has_products'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
-        $categories = $this->category->readAllWithCounts($productFilter, $sort);
+
+        $page = max(1, (int) ($_GET['page'] ?? 1));
+        $totalCount = $this->category->countFiltered($productFilter);
+        $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
+        $page = min($page, $totalPages);
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        $categories = $this->category->readAllWithCounts($productFilter, $sort, self::PER_PAGE, $offset);
+
+        $pagination = [
+            'page' => $page,
+            'perPage' => self::PER_PAGE,
+            'totalCount' => $totalCount,
+            'totalPages' => $totalPages,
+        ];
+
         require __DIR__ . '/../Views/categories/index.php';
     }
 

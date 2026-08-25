@@ -32,13 +32,75 @@ class Brand
         return $stmt->execute();
     }
 
-    /** READ - every brand, alphabetical */
+    /** READ - every brand, alphabetical (unfiltered, for dropdowns elsewhere) */
     public function readAll(): array
     {
         $query = "SELECT * FROM {$this->table} ORDER BY brand_name ASC";
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
         return $stmt->fetchAll();
+    }
+
+    private const SORT_OPTIONS = [
+        'newest' => 'b.created_at DESC',
+        'oldest' => 'b.created_at ASC',
+        'name_asc' => 'b.brand_name ASC',
+        'name_desc' => 'b.brand_name DESC',
+        'products_desc' => 'product_count DESC',
+        'products_asc' => 'product_count ASC',
+    ];
+
+    /** READ - every brand with its product count, filtered/sorted/paginated
+     *  for the Brands list page. $sort picks an ORDER BY from
+     *  self::SORT_OPTIONS (defaults to newest first). */
+    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    {
+        $query = "SELECT b.*, COUNT(i.item_id) AS product_count
+                  FROM {$this->table} b
+                  LEFT JOIN inventory_items i ON i.brand_id = b.brand_id
+                  GROUP BY b.brand_id";
+
+        if ($productFilter === 'has') {
+            $query .= " HAVING product_count > 0";
+        } elseif ($productFilter === 'empty') {
+            $query .= " HAVING product_count = 0";
+        }
+
+        $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
+        $query .= " ORDER BY {$orderBy}";
+
+        if ($limit !== null) {
+            $query .= " LIMIT :limit OFFSET :offset";
+        }
+
+        $stmt = $this->conn->prepare($query);
+        if ($limit !== null) {
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset ?? 0, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    /** Count of brands matching the same filter as readAllWithCounts() - powers pagination */
+    public function countFiltered(?string $productFilter = null): int
+    {
+        $query = "SELECT COUNT(*) AS total FROM (
+                    SELECT b.brand_id, COUNT(i.item_id) AS product_count
+                    FROM {$this->table} b
+                    LEFT JOIN inventory_items i ON i.brand_id = b.brand_id
+                    GROUP BY b.brand_id";
+
+        if ($productFilter === 'has') {
+            $query .= " HAVING product_count > 0";
+        } elseif ($productFilter === 'empty') {
+            $query .= " HAVING product_count = 0";
+        }
+
+        $query .= ") AS sub";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
     }
 
     /** READ - single brand by id */

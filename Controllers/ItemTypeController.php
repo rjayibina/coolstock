@@ -7,6 +7,8 @@ require_once __DIR__ . '/../Models/ItemType.php';
  */
 class ItemTypeController
 {
+    private const PER_PAGE = 10;
+
     private ItemType $itemType;
 
     public function __construct()
@@ -14,10 +16,27 @@ class ItemTypeController
         $this->itemType = new ItemType();
     }
 
-    /** List all item types */
+    /** List all item types, filtered by product count / serial requirement, sorted, and paginated */
     public function index(): void
     {
-        $itemTypes = $this->itemType->readAll();
+        $productFilter = $_GET['has_products'] ?? null;
+        $serialFilter = $_GET['requires_serial'] ?? null;
+        $sort = $_GET['sort'] ?? 'newest';
+
+        $page = max(1, (int) ($_GET['page'] ?? 1));
+        $totalCount = $this->itemType->countFiltered($productFilter, $serialFilter);
+        $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
+        $page = min($page, $totalPages);
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        $itemTypes = $this->itemType->readAllWithCounts($productFilter, $serialFilter, $sort, self::PER_PAGE, $offset);
+
+        $pagination = [
+            'page' => $page,
+            'perPage' => self::PER_PAGE,
+            'totalCount' => $totalCount,
+            'totalPages' => $totalPages,
+        ];
         require __DIR__ . '/../Views/itemtypes/index.php';
     }
 
