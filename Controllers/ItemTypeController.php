@@ -16,20 +16,19 @@ class ItemTypeController
         $this->itemType = new ItemType();
     }
 
-    /** List all item types, filtered by product count / serial requirement, sorted, and paginated */
+    /** List all item types, filtered by product count, sorted, and paginated */
     public function index(): void
     {
         $productFilter = $_GET['has_products'] ?? null;
-        $serialFilter = $_GET['requires_serial'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->itemType->countFiltered($productFilter, $serialFilter);
+        $totalCount = $this->itemType->countFiltered($productFilter);
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $itemTypes = $this->itemType->readAllWithCounts($productFilter, $serialFilter, $sort, self::PER_PAGE, $offset);
+        $itemTypes = $this->itemType->readAllWithCounts($productFilter, $sort, self::PER_PAGE, $offset);
 
         $pagination = [
             'page' => $page,
@@ -51,7 +50,6 @@ class ItemTypeController
         }
 
         $this->itemType->type_name = $name;
-        $this->itemType->requires_serial = isset($_POST['requires_serial']) ? 1 : 0;
 
         if ($this->itemType->create()) {
             header("Location: index.php?module=itemtypes&action=index&status=created");
@@ -80,7 +78,6 @@ class ItemTypeController
 
         $this->itemType->item_type_id = $id;
         $this->itemType->type_name = $name;
-        $this->itemType->requires_serial = isset($_POST['requires_serial']) ? 1 : 0;
 
         if ($this->itemType->update()) {
             header("Location: index.php?module=itemtypes&action=index&status=updated");

@@ -3,9 +3,8 @@ require_once __DIR__ . '/../Config/Database.php';
 
 /**
  * Brand.php (Model)
- * Represents a single row of the brands table (e.g. "Carrier", code "088").
- * The code belongs to the brand itself, not to individual products - an
- * item just references a BrandID and the code comes along with it.
+ * Represents a single row of the brands table: just an ID and a Name,
+ * matching the ERD's tblBrand exactly.
  */
 class Brand
 {
@@ -14,8 +13,6 @@ class Brand
 
     public ?int $brand_id = null;
     public ?string $brand_name = null;
-    public ?string $brand_code = null;
-    public ?string $created_at = null;
 
     public function __construct()
     {
@@ -25,10 +22,9 @@ class Brand
     /** CREATE - insert a new brand */
     public function create(): bool
     {
-        $query = "INSERT INTO {$this->table} (brand_name, brand_code) VALUES (:brand_name, :brand_code)";
+        $query = "INSERT INTO {$this->table} (brand_name) VALUES (:brand_name)";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':brand_name', $this->brand_name);
-        $stmt->bindParam(':brand_code', $this->brand_code);
         return $stmt->execute();
     }
 
@@ -42,8 +38,8 @@ class Brand
     }
 
     private const SORT_OPTIONS = [
-        'newest' => 'b.created_at DESC',
-        'oldest' => 'b.created_at ASC',
+        'newest' => 'b.brand_id DESC',
+        'oldest' => 'b.brand_id ASC',
         'name_asc' => 'b.brand_name ASC',
         'name_desc' => 'b.brand_name DESC',
         'products_desc' => 'product_count DESC',
@@ -116,10 +112,9 @@ class Brand
     /** UPDATE - edit an existing brand */
     public function update(): bool
     {
-        $query = "UPDATE {$this->table} SET brand_name = :brand_name, brand_code = :brand_code WHERE brand_id = :brand_id";
+        $query = "UPDATE {$this->table} SET brand_name = :brand_name WHERE brand_id = :brand_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':brand_name', $this->brand_name);
-        $stmt->bindParam(':brand_code', $this->brand_code);
         $stmt->bindParam(':brand_id', $this->brand_id, PDO::PARAM_INT);
         return $stmt->execute();
     }

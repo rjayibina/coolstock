@@ -31,9 +31,6 @@ require __DIR__ . '/../partials/header.php';
                 <input type="text" id="category_name" name="category_name"
                        value="<?= htmlspecialchars($data['category_name']) ?>" required>
 
-                <label for="category_description">Description</label>
-                <textarea id="category_description" name="category_description"><?= htmlspecialchars($data['category_description'] ?? '') ?></textarea>
-
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Update Category</button>
                     <a href="index.php?module=categories&action=index" class="btn btn-secondary">Cancel</a>

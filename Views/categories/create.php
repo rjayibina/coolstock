@@ -30,10 +30,6 @@ require __DIR__ . '/../partials/header.php';
                        placeholder="e.g. Refrigeration Parts"
                        value="<?= htmlspecialchars($_POST['category_name'] ?? '') ?>" required>
 
-                <label for="category_description">Description</label>
-                <textarea id="category_description" name="category_description"
-                          placeholder="Optional notes about what belongs in this category"><?= htmlspecialchars($_POST['category_description'] ?? '') ?></textarea>
-
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Category</button>
                     <a href="index.php?module=categories&action=index" class="btn btn-secondary">Cancel</a>

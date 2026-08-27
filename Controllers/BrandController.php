@@ -44,7 +44,6 @@ class BrandController
     public function create(): void
     {
         $name = trim($_POST['brand_name'] ?? '');
-        $code = trim($_POST['brand_code'] ?? '');
 
         if ($name === '') {
             header("Location: index.php?module=brands&action=index&status=name_required");
@@ -52,7 +51,6 @@ class BrandController
         }
 
         $this->brand->brand_name = $name;
-        $this->brand->brand_code = $code ?: null;
 
         if ($this->brand->create()) {
             header("Location: index.php?module=brands&action=index&status=created");
@@ -68,7 +66,6 @@ class BrandController
     {
         $id = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($_POST['brand_id'] ?? 0);
         $name = trim($_POST['brand_name'] ?? '');
-        $code = trim($_POST['brand_code'] ?? '');
 
         if ($id <= 0) {
             header("Location: index.php?module=brands&action=index");
@@ -82,7 +79,6 @@ class BrandController
 
         $this->brand->brand_id = $id;
         $this->brand->brand_name = $name;
-        $this->brand->brand_code = $code ?: null;
 
         if ($this->brand->update()) {
             header("Location: index.php?module=brands&action=index&status=updated");

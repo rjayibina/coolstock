@@ -4,6 +4,11 @@ require_once __DIR__ . '/../Config/Database.php';
 /**
  * Location.php (Model)
  * Represents a single row of the locations table (e.g. "Main Store", "Warehouse").
+ *
+ * Linked to products via inventory_items.location_id - dropped in the
+ * strict-ERD-compliance rework's Phase 3, then re-added (see
+ * migration_readd_location_to_products.sql). The list page itself stays
+ * simplified (ID + Name only, no Products column/filter/sort).
  */
 class Location
 {
@@ -12,7 +17,6 @@ class Location
 
     public ?int $location_id = null;
     public ?string $location_name = null;
-    public ?string $created_at = null;
 
     public function __construct()
     {
@@ -38,32 +42,18 @@ class Location
     }
 
     private const SORT_OPTIONS = [
-        'newest' => 'l.created_at DESC',
-        'oldest' => 'l.created_at ASC',
-        'name_asc' => 'l.location_name ASC',
-        'name_desc' => 'l.location_name DESC',
-        'products_desc' => 'product_count DESC',
-        'products_asc' => 'product_count ASC',
+        'newest' => 'location_id DESC',
+        'oldest' => 'location_id ASC',
+        'name_asc' => 'location_name ASC',
+        'name_desc' => 'location_name DESC',
     ];
 
-    /** READ - every location with its product count, filtered/sorted/paginated
-     *  for the Locations list page. $sort picks an ORDER BY from
-     *  self::SORT_OPTIONS (defaults to newest first). */
-    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    /** READ - every location, sorted/paginated for the Locations list page.
+     *  $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first). */
+    public function readAllPaged(?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
-        $query = "SELECT l.*, COUNT(i.item_id) AS product_count
-                  FROM {$this->table} l
-                  LEFT JOIN inventory_items i ON i.location_id = l.location_id
-                  GROUP BY l.location_id";
-
-        if ($productFilter === 'has') {
-            $query .= " HAVING product_count > 0";
-        } elseif ($productFilter === 'empty') {
-            $query .= " HAVING product_count = 0";
-        }
-
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
-        $query .= " ORDER BY {$orderBy}";
+        $query = "SELECT * FROM {$this->table} ORDER BY {$orderBy}";
 
         if ($limit !== null) {
             $query .= " LIMIT :limit OFFSET :offset";
@@ -76,27 +66,6 @@ class Location
         }
         $stmt->execute();
         return $stmt->fetchAll();
-    }
-
-    /** Count of locations matching the same filter as readAllWithCounts() - powers pagination */
-    public function countFiltered(?string $productFilter = null): int
-    {
-        $query = "SELECT COUNT(*) AS total FROM (
-                    SELECT l.location_id, COUNT(i.item_id) AS product_count
-                    FROM {$this->table} l
-                    LEFT JOIN inventory_items i ON i.location_id = l.location_id
-                    GROUP BY l.location_id";
-
-        if ($productFilter === 'has') {
-            $query .= " HAVING product_count > 0";
-        } elseif ($productFilter === 'empty') {
-            $query .= " HAVING product_count = 0";
-        }
-
-        $query .= ") AS sub";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
-        return (int) $stmt->fetch()['total'];
     }
 
     /** READ - single location by id */
@@ -119,7 +88,9 @@ class Location
         return $stmt->execute();
     }
 
-    /** DELETE - remove a location by id */
+    /** DELETE - remove a location by id. Caller should check
+     *  hasLinkedItems() first - a location still referenced by a product
+     *  will fail on the FK constraint otherwise. */
     public function delete(int $id): bool
     {
         $query = "DELETE FROM {$this->table} WHERE location_id = :id";
@@ -128,7 +99,7 @@ class Location
         return $stmt->execute();
     }
 
-    /** Count of all locations - used on the Dashboard */
+    /** Count of all locations - powers pagination on the Locations list page */
     public function count(): int
     {
         $stmt = $this->conn->query("SELECT COUNT(*) AS total FROM {$this->table}");

@@ -92,25 +92,21 @@ function brandPageUrl(int $page): string
             <table id="brandTable">
                 <thead>
                     <tr>
-                        <th>Brand</th>
-                        <th>Code</th>
-                        <th>Products</th>
-                        <th>Added</th>
+                        <th style="width:60px;">ID</th>
+                        <th>Name</th>
                         <th style="width:150px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (empty($brands)): ?>
                         <tr class="empty-row">
-                            <td colspan="5">No brands match these filters.</td>
+                            <td colspan="3">No brands match these filters.</td>
                         </tr>
                     <?php else: ?>
                         <?php foreach ($brands as $b): ?>
                             <tr>
+                                <td class="cell-id"><?= (int) $b['brand_id'] ?></td>
                                 <td><strong><?= htmlspecialchars($b['brand_name']) ?></strong></td>
-                                <td class="cell-muted"><?= htmlspecialchars($b['brand_code'] ?: '—') ?></td>
-                                <td class="cell-muted"><?= (int) $b['product_count'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars($b['created_at']) ?></td>
                                 <td class="actions">
                                     <button type="button" class="btn btn-edit btn-sm" onclick="openEditBrandModal(<?= $b['brand_id'] ?>)">Edit</button>
                                     <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteBrandModal(<?= $b['brand_id'] ?>)">Delete</button>
@@ -150,9 +146,6 @@ function brandPageUrl(int $page): string
                         <label for="ab_brand_name">Brand Name</label>
                         <input type="text" id="ab_brand_name" name="brand_name" placeholder="e.g. Carrier" required>
 
-                        <label for="ab_brand_code">Brand Code <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" id="ab_brand_code" name="brand_code" placeholder="e.g. 088">
-
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Brand</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('addBrandModal')">Cancel</button>
@@ -174,9 +167,6 @@ function brandPageUrl(int $page): string
 
                         <label for="eb_brand_name">Brand Name</label>
                         <input type="text" id="eb_brand_name" name="brand_name" required>
-
-                        <label for="eb_brand_code">Brand Code <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <input type="text" id="eb_brand_code" name="brand_code">
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Brand</button>
@@ -221,7 +211,6 @@ function brandPageUrl(int $page): string
             document.getElementById('eb_brand_id').value = id;
             document.getElementById('editBrandForm').action = 'index.php?module=brands&action=edit&id=' + id;
             document.getElementById('eb_brand_name').value = b.brand_name || '';
-            document.getElementById('eb_brand_code').value = b.brand_code || '';
 
             document.getElementById('editBrandModal').classList.add('open');
         }

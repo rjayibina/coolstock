@@ -30,23 +30,21 @@ $old = $_POST ?: array_filter(['item_id' => $prefillItemId, 'transaction_type' =
             <?php else: ?>
             <form method="POST" action="index.php?module=transactions&action=create">
                 <label for="transaction_type">Transaction Type</label>
-                <select id="transaction_type" name="transaction_type" required onchange="updateSerialField()"
+                <select id="transaction_type" name="transaction_type" required
                         style="width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:8px;font-size:14px;margin-bottom:18px;font-family:inherit;color:var(--text-dark);">
                     <option value="">Select a type...</option>
-                    <option value="stock_in" <?= (($old['transaction_type'] ?? '') === 'stock_in') ? 'selected' : '' ?>>Stock In — new or returned stock added</option>
-                    <option value="stock_out" <?= (($old['transaction_type'] ?? '') === 'stock_out') ? 'selected' : '' ?>>Stock Out — items released for service use</option>
-                    <option value="item_request" <?= (($old['transaction_type'] ?? '') === 'item_request') ? 'selected' : '' ?>>Item Request — pending until approved, stock not deducted yet</option>
+                    <option value="item_request" <?= (($old['transaction_type'] ?? '') === 'item_request') ? 'selected' : '' ?>>Item Request — pending until approved</option>
                     <option value="borrow" <?= (($old['transaction_type'] ?? '') === 'borrow') ? 'selected' : '' ?>>Borrow — technician borrows a tool temporarily</option>
                     <option value="return" <?= (($old['transaction_type'] ?? '') === 'return') ? 'selected' : '' ?>>Return — borrowed or requested item returned</option>
                 </select>
 
                 <label for="item_id">Product</label>
-                <select id="item_id" name="item_id" required onchange="updateSerialField()"
+                <select id="item_id" name="item_id" required
                         style="width:100%;padding:10px 13px;border:1px solid var(--border);border-radius:8px;font-size:14px;margin-bottom:18px;font-family:inherit;color:var(--text-dark);">
                     <option value="">Select a product...</option>
                     <?php foreach ($items as $it): ?>
                         <option value="<?= $it['item_id'] ?>" <?= (($old['item_id'] ?? '') == $it['item_id']) ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($it['item_name']) ?> (<?= (int) $it['quantity_on_hand'] ?> <?= htmlspecialchars($it['unit_of_measure'] ?? '') ?> on hand)
+                            <?= htmlspecialchars($it['model']) ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -55,18 +53,11 @@ $old = $_POST ?: array_filter(['item_id' => $prefillItemId, 'transaction_type' =
                 <input type="number" id="quantity" name="quantity" min="1" step="1"
                        value="<?= htmlspecialchars($old['quantity'] ?? '1') ?>" required>
 
-                <div id="tx_serial_wrap" style="display:none;">
-                    <label for="serial_number">Serial Number</label>
-                    <input type="text" id="serial_number" name="serial_number"
-                           placeholder="Serial number of the unit being taken out"
-                           value="<?= htmlspecialchars($old['serial_number'] ?? '') ?>">
-                </div>
-
                 <label for="transaction_date">Transaction Date</label>
                 <input type="date" id="transaction_date" name="transaction_date"
                        value="<?= htmlspecialchars($old['transaction_date'] ?? date('Y-m-d')) ?>" required>
 
-                <label for="technician_name">Technician Name <span style="font-weight:400;color:var(--text-muted);">(required for requests, borrows, and returns)</span></label>
+                <label for="technician_name">Technician Name</label>
                 <input type="text" id="technician_name" name="technician_name"
                        placeholder="e.g. Juan Dela Cruz"
                        value="<?= htmlspecialchars($old['technician_name'] ?? '') ?>">
@@ -79,24 +70,6 @@ $old = $_POST ?: array_filter(['item_id' => $prefillItemId, 'transaction_type' =
                     <a href="index.php?module=transactions&action=index" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>
-
-            <script>
-            const itemsRequireSerial = <?= json_encode(array_column($items, 'requires_serial', 'item_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
-
-            function updateSerialField() {
-                const type = document.getElementById('transaction_type').value;
-                const itemId = document.getElementById('item_id').value;
-                const wrap = document.getElementById('tx_serial_wrap');
-                const input = document.getElementById('serial_number');
-                const needsSerial = type === 'stock_out' && Number(itemsRequireSerial[itemId]) === 1;
-
-                wrap.style.display = needsSerial ? 'block' : 'none';
-                input.required = needsSerial;
-                if (!needsSerial) input.value = '';
-            }
-
-            updateSerialField();
-            </script>
             <?php endif; ?>
         </div>
 <?php require __DIR__ . '/../partials/footer.php'; ?>

@@ -1,9 +1,10 @@
 -- ============================================================
 -- CoolStock / Mister Aircon Inventory System
--- FULL SETUP: schema (current state, all Phases 1-5 + the Category-required
--- and Item-Type-driven-serial changes baked in) + demo seed data
+-- FULL SETUP: schema (current state - strict ERD compliance Phases 1-4,
+-- plus Location re-linked to Products and Asset-required specs) + demo
+-- seed data
 -- ============================================================
--- Use this on a fresh/empty database - it replaces running all 13
+-- Use this on a fresh/empty database - it replaces running all 17
 -- individual migration files one by one. Run it top to bottom in
 -- phpMyAdmin's SQL tab.
 --
@@ -19,52 +20,47 @@
 -- SCHEMA
 -- ============================================================
 
+-- Lookup tables: strictly ID + Name, matching the hand-drawn ERD.
 CREATE TABLE item_categories (
     category_id INT AUTO_INCREMENT PRIMARY KEY,
-    category_name VARCHAR(100) NOT NULL,
-    category_description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    category_name VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE brands (
     brand_id INT AUTO_INCREMENT PRIMARY KEY,
-    brand_name VARCHAR(100) NOT NULL,
-    -- The manufacturer's own code for this brand (e.g. Carrier -> "088"),
-    -- not a per-item code - it belongs to the brand, not the product.
-    brand_code VARCHAR(50) DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    brand_name VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE item_types (
     item_type_id INT AUTO_INCREMENT PRIMARY KEY,
-    type_name VARCHAR(100) NOT NULL,
-    -- Whether products of this item type get a Serial Number requirement on
-    -- Stock Out (1 = yes, e.g. Asset; 0 = no, e.g. Consumable). A product
-    -- with NO item type assigned (it's optional) is treated as REQUIRING a
-    -- serial number - the safer default (see InventoryItem::readAll()/
-    -- readOne(), which use COALESCE(t.requires_serial, 1)).
-    requires_serial TINYINT(1) NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    type_name VARCHAR(100) NOT NULL
 );
 
+-- Lookup table, linked to inventory_items via location_id below (one
+-- location per product). Its own page still supports Add/Edit/Delete,
+-- but stays a simple ID + Name list (no Products column/filter/sort).
 CREATE TABLE locations (
     location_id INT AUTO_INCREMENT PRIMARY KEY,
-    location_name VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    location_name VARCHAR(100) NOT NULL
 );
 
+-- Item: the ERD's tblItem fields plus location_id. There is no name
+-- field of its own - `model` is the item's only identifying field, so
+-- it's required and used everywhere a display name is needed (table,
+-- search, sort, CSV, the Transactions item picker). No stock-level
+-- fields either - there is no stock concept in this system, not even
+-- one computed from Transactions.
 CREATE TABLE inventory_items (
     item_id INT AUTO_INCREMENT PRIMARY KEY,
     category_id INT DEFAULT NULL,
-    item_name VARCHAR(100) NOT NULL,
-    description TEXT,
-    unit_of_measure VARCHAR(50),
     brand_id INT NULL,
     item_type_id INT NULL,
     location_id INT NULL,
-    -- AC technical specs (Phase 5) - all optional, not every product
-    -- (e.g. Consumables) will have these filled in.
-    model VARCHAR(100) DEFAULT NULL,
+    model VARCHAR(100) NOT NULL,
+    -- AC technical specs. Required (enforced in the app) when
+    -- item_type_id is the "Asset" item type; always null for Consumable
+    -- or when no item type is set - nullable here since the DB can't
+    -- express that conditional itself.
     energy_rating VARCHAR(20) DEFAULT NULL,
     monthly_consumption DECIMAL(10,2) DEFAULT NULL,
     cooling_capacity VARCHAR(50) DEFAULT NULL,
@@ -72,9 +68,6 @@ CREATE TABLE inventory_items (
     installation_type VARCHAR(50) DEFAULT NULL,
     power_input VARCHAR(50) DEFAULT NULL,
     year INT DEFAULT NULL,
-    quantity_on_hand INT DEFAULT 0,
-    minimum_stock_level INT DEFAULT 0,
-    image_path VARCHAR(255) DEFAULT NULL,
     FOREIGN KEY (category_id) REFERENCES item_categories(category_id)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,
@@ -89,31 +82,30 @@ CREATE TABLE inventory_items (
         ON DELETE RESTRICT
 );
 
--- Transactions: covers Stock-In, Stock-Out, Item Request, Borrow, and Return
--- (Item Request and Return Monitoring Module / Inventory Management Module).
--- item_id is nullable with ON DELETE SET NULL so this stays a permanent
--- audit trail even after a product is deleted (item_name reads as
--- "Unknown product" in the UI for those rows).
+-- Transactions: plain activity-log entries for the Item Request and
+-- Return Monitoring Module - Item Request, Borrow, or Return. Stock
+-- In/Out and all stock-quantity math were removed entirely; a
+-- transaction never adjusts any product's stock level, it just records
+-- that a movement happened. item_id is nullable with ON DELETE SET NULL
+-- so this stays a permanent audit trail even after a product is deleted
+-- (its model reads as "Unknown product" in the UI for those rows).
 CREATE TABLE transactions (
     transaction_id INT AUTO_INCREMENT PRIMARY KEY,
     item_id INT NULL,
-    transaction_type ENUM('stock_in', 'stock_out', 'item_request', 'borrow', 'return') NOT NULL,
+    transaction_type ENUM('item_request', 'borrow', 'return') NOT NULL,
     quantity INT NOT NULL,
-    -- The serial number of the specific unit taken out, for Stock Out on
-    -- categories that require one. Always null for Stock In and for
-    -- non-serialized categories.
-    serial_number VARCHAR(100) DEFAULT NULL,
-    -- The date the stock movement actually happened, separate from
-    -- created_at (the audit timestamp of when the row was logged).
+    -- The date the movement actually happened, separate from created_at
+    -- (the audit timestamp of when the row was logged).
     transaction_date DATE DEFAULT NULL,
     technician_name VARCHAR(100) DEFAULT NULL,
     notes TEXT,
-    -- 'manual' = logged from the Transactions page. 'auto' = generated by
-    -- the system itself (product created with starting stock, etc).
+    -- 'manual' = logged from the Transactions page. 'auto' only ever
+    -- existed for system-generated Stock In/Out rows, which are gone -
+    -- new rows are always 'manual'.
     source ENUM('manual', 'auto') NOT NULL DEFAULT 'manual',
-    -- 'pending' = an Item Request that hasn't been approved yet (no stock
-    -- deducted). 'completed' = everything else, and approved requests.
-    -- 'declined' = never deducted, kept for the audit trail.
+    -- 'pending' = an Item Request that hasn't been approved yet.
+    -- 'completed' = everything else, and approved requests. 'declined' =
+    -- a refused request, kept for the audit trail.
     status ENUM('pending', 'completed', 'declined') NOT NULL DEFAULT 'completed',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_transactions_item_id
@@ -122,9 +114,11 @@ CREATE TABLE transactions (
         ON DELETE SET NULL
 );
 
--- Reports: metadata for the Reporting and Monitoring Module. Report
--- *content* is computed live from inventory_items/transactions - this
--- table just logs that a report was generated, for audit purposes.
+-- Reports: metadata for the (not yet built) Reporting and Monitoring
+-- Module. Report *content* would be computed live from inventory_items/
+-- transactions - this table just logs that a report was generated, for
+-- audit purposes. Untouched by the strict-ERD rework - no app code
+-- reads or writes it yet.
 CREATE TABLE reports (
     report_id INT AUTO_INCREMENT PRIMARY KEY,
     report_type ENUM('stock_summary', 'usage_report', 'low_stock', 'transaction_log') NOT NULL,
@@ -140,178 +134,146 @@ CREATE TABLE reports (
 -- ============================================================
 
 -- ---- Categories (category_id 1-5) ----
-INSERT INTO item_categories (category_name, category_description) VALUES
-('Split Type AC', 'Wall-mounted split-type air conditioning units, indoor + outdoor unit pairs.'),
-('Window Type AC', 'Self-contained window/wall-box air conditioning units.'),
-('Floor Mounted AC', 'Floor-standing air conditioning units for larger open areas.'),
-('Cassette Type AC', 'Ceiling cassette air conditioning units for commercial spaces.'),
-('Consumables & Spare Parts', 'Refrigerant, insulation, mounting hardware, and other non-serialized supplies.');
+INSERT INTO item_categories (category_name) VALUES
+('Split Type AC'),
+('Window Type AC'),
+('Floor Mounted AC'),
+('Cassette Type AC'),
+('Consumables & Spare Parts');
 
 -- ---- Brands (brand_id 1-6) ----
-INSERT INTO brands (brand_name, brand_code) VALUES
-('Daikin', '045'),
-('Carrier', '088'),
-('Panasonic', '112'),
-('LG', '076'),
-('Samsung', '059'),
-('Mitsubishi Electric', '033');
+INSERT INTO brands (brand_name) VALUES
+('Daikin'),
+('Carrier'),
+('Panasonic'),
+('LG'),
+('Samsung'),
+('Mitsubishi Electric');
 
--- ---- Item Types (item_type_id 1-2) - requires_serial drives Stock Out's
--- Serial Number requirement now (Asset = required, Consumable = not) ----
-INSERT INTO item_types (type_name, requires_serial) VALUES ('Asset', 1), ('Consumable', 0);
+-- ---- Item Types (item_type_id 1-2) ----
+INSERT INTO item_types (type_name) VALUES ('Asset'), ('Consumable');
 
--- ---- Locations (location_id 1-2) ----
+-- ---- Locations (location_id 1-2) - linked to items via location_id ----
 INSERT INTO locations (location_name) VALUES ('Main Store'), ('Warehouse');
 
 -- ---- Inventory Items (item_id 1-11) ----
+-- Consumables (#7-10) have no brand or AC specs, so their `model` is a
+-- short part code instead of a manufacturer model number. Every Asset
+-- item type (#1-6, #11) has all 7 technical specs filled in, since the
+-- app requires them for Asset; Consumables (#7-10) have none, since the
+-- app hides and blanks that section for Consumable/no item type.
 
--- #1 - Daikin Split Type, Main Store, healthy stock
+-- #1 - Daikin Split Type, Main Store
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (1, 'Daikin Split Type Inverter AC 1.0HP', 'Inverter split-type air conditioner, ideal for bedrooms and small offices.', 'unit', 1, 1, 1,
-     'FTKC25XVM', '5 Star (Inverter)', 45.50, '9,000 BTU/hr', 'R32', 'Wall Mounted', '220-240V, 50Hz, 1.5A', 2024,
-     15, 5);
+    (1, 1, 1, 1, 'FTKC25XVM', '5 Star (Inverter)', 45.50, '9,000 BTU/hr', 'R32', 'Wall Mounted', '220-240V, 50Hz, 1.5A', 2024);
 
 -- #2 - Carrier Window Type, Warehouse
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (2, 'Carrier Window Type AC 1.5HP', 'Compact window-mounted unit, straightforward install for single rooms.', 'unit', 2, 1, 2,
-     '51QAC12', '3 Star', 68.00, '12,000 BTU/hr', 'R410A', 'Window Mounted', '220-240V, 50Hz, 5.8A', 2023,
-     8, 3);
+    (2, 2, 1, 2, '51QAC12', '3 Star', 68.00, '12,000 BTU/hr', 'R410A', 'Window Mounted', '220-240V, 50Hz, 5.8A', 2023);
 
 -- #3 - Panasonic Floor Mounted, Main Store
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (3, 'Panasonic Floor Mounted AC 2.0HP', 'Floor-standing unit for wide open areas like showrooms or lobbies.', 'unit', 3, 1, 1,
-     'S-24PU1U5B', '4 Star', 95.20, '24,000 BTU/hr', 'R32', 'Floor Standing', '220-240V, 50Hz, 9.5A', 2024,
-     5, 2);
+    (3, 3, 1, 1, 'S-24PU1U5B', '4 Star', 95.20, '24,000 BTU/hr', 'R32', 'Floor Standing', '220-240V, 50Hz, 9.5A', 2024);
 
--- #4 - LG Cassette Type, Warehouse - LOW STOCK on purpose (1 on hand, min 2)
+-- #4 - LG Cassette Type, Warehouse
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (4, 'LG Cassette Type AC 3.0HP', 'Ceiling cassette unit for commercial spaces, 4-way air discharge.', 'unit', 4, 1, 2,
-     'ATNQ36GPLE0', '3 Star', 145.00, '36,000 BTU/hr', 'R410A', 'Ceiling Cassette', '380-415V, 3-Phase, 50Hz', 2022,
-     1, 2);
+    (4, 4, 1, 2, 'ATNQ36GPLE0', '3 Star', 145.00, '36,000 BTU/hr', 'R410A', 'Ceiling Cassette', '380-415V, 3-Phase, 50Hz', 2022);
 
 -- #5 - Samsung Split Type, Main Store
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (1, 'Samsung Split Type Inverter AC 1.5HP', 'Inverter split-type unit with WindFree cooling technology.', 'unit', 5, 1, 1,
-     'AR13AYHZAWK', '5 Star', 58.30, '13,000 BTU/hr', 'R32', 'Wall Mounted', '220-240V, 50Hz, 2.3A', 2024,
-     20, 6);
+    (1, 5, 1, 1, 'AR13AYHZAWK', '5 Star', 58.30, '13,000 BTU/hr', 'R32', 'Wall Mounted', '220-240V, 50Hz, 2.3A', 2024);
 
 -- #6 - Mitsubishi Electric Split Type, Warehouse
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (1, 'Mitsubishi Electric Split Type AC 2.5HP', 'Inverter split-type unit, quiet operation, wide temperature range.', 'unit', 6, 1, 2,
-     'MSY-GL25VF', '5 Star (Inverter)', 82.00, '25,000 BTU/hr', 'R32', 'Wall Mounted', '220-240V, 50Hz, 3.8A', 2023,
-     6, 2);
+    (1, 6, 1, 2, 'MSY-GL25VF', '5 Star (Inverter)', 82.00, '25,000 BTU/hr', 'R32', 'Wall Mounted', '220-240V, 50Hz, 3.8A', 2023);
 
--- #7 - R32 Refrigerant Gas Cylinder (Consumable, no brand, no AC specs)
+-- #7 - R32 Refrigerant Gas Cylinder, Main Store (Consumable, no brand, no AC specs)
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model)
 VALUES
-    (5, 'R32 Refrigerant Gas Cylinder (10kg)', 'Refrigerant gas cylinder for AC recharging and installation jobs.', 'cylinder', NULL, 2, 1,
-     NULL, NULL, NULL, NULL, 'R32', NULL, NULL, NULL,
-     25, 10);
+    (5, NULL, 2, 1, 'R32-CYL-10KG');
 
--- #8 - Copper Pipe Insulation Tape (Consumable)
+-- #8 - Copper Pipe Insulation Tape, Main Store (Consumable)
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model)
 VALUES
-    (5, 'Copper Pipe Insulation Tape', 'Foam insulation tape for copper refrigerant lines.', 'roll', NULL, 2, 1,
-     60, 20);
+    (5, NULL, 2, 1, 'INSUL-TAPE-CU');
 
--- #9 - PVC Drain Pipe (Consumable)
+-- #9 - PVC Drain Pipe, Warehouse (Consumable)
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model)
 VALUES
-    (5, 'PVC Drain Pipe 1/2 inch', 'PVC drain pipe for AC condensate drainage.', 'meter', NULL, 2, 2,
-     200, 50);
+    (5, NULL, 2, 2, 'PVC-DRAIN-12');
 
--- #10 - AC Mounting Bracket Set (Consumable)
+-- #10 - AC Mounting Bracket Set, Warehouse (Consumable)
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model)
 VALUES
-    (5, 'AC Mounting Bracket Set (Wall Type)', 'Heavy-duty wall mounting bracket set for split-type outdoor units.', 'set', NULL, 2, 2,
-     30, 10);
+    (5, NULL, 2, 2, 'BRKT-WALL-SET');
 
--- #11 - Daikin Window Type, Main Store - OUT OF STOCK on purpose (0 on hand)
+-- #11 - Daikin Window Type, Main Store
 INSERT INTO inventory_items
-    (category_id, item_name, description, unit_of_measure, brand_id, item_type_id, location_id,
-     model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year,
-     quantity_on_hand, minimum_stock_level)
+    (category_id, brand_id, item_type_id, location_id, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
 VALUES
-    (2, 'Daikin Window Type AC 1.0HP', 'Compact window-mounted unit for single rooms.', 'unit', 1, 1, 1,
-     'FACQ10', '3 Star', 52.00, '10,000 BTU/hr', 'R32', 'Window Mounted', '220-240V, 50Hz, 4.5A', 2022,
-     0, 3);
+    (2, 1, 1, 1, 'FACQ10', '3 Star', 52.00, '10,000 BTU/hr', 'R32', 'Window Mounted', '220-240V, 50Hz, 4.5A', 2022);
 
--- ---- Transactions - audit trail history for the seeded items ----
+-- ---- Transactions - activity log for the seeded items. No quantity
+-- math - these are just records that a movement happened. ----
 
--- #1 Daikin Split 1.0HP: stocked in 20, later 5 went out with a serial (net 15)
-INSERT INTO transactions (item_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status) VALUES
-(1, 'stock_in', 20, NULL, '2026-06-15', NULL, 'Initial stock (seed data).', 'auto', 'completed'),
-(1, 'stock_out', 5, 'DK-SN-2024-0011', '2026-07-20', 'Roberto Cruz', 'Installed at client site - Barangay Lahug.', 'manual', 'completed');
-
--- #2 Carrier Window 1.5HP: stocked in 8, plus one declined stock-out (never deducted)
-INSERT INTO transactions (item_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status) VALUES
-(2, 'stock_in', 8, NULL, '2026-06-20', NULL, 'Initial stock (seed data).', 'auto', 'completed'),
-(2, 'stock_out', 2, 'CR-SN-2023-0078', '2026-08-05', 'Maria Santos', 'Declined - insufficient authorization, needs supervisor approval.', 'manual', 'declined');
-
--- #3 Panasonic Floor Mounted 2.0HP: single stock-in
-INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, notes, source, status) VALUES
-(3, 'stock_in', 5, '2026-07-01', 'Initial stock (seed data).', 'auto', 'completed');
-
--- #4 LG Cassette 3.0HP: stocked in 3, 2 went out with a serial (net 1 - low stock)
-INSERT INTO transactions (item_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status) VALUES
-(4, 'stock_in', 3, NULL, '2026-05-10', NULL, 'Initial stock (seed data).', 'auto', 'completed'),
-(4, 'stock_out', 2, 'LG-SN-2022-0087', '2026-08-01', 'Ana Reyes', 'Installed - conference room unit.', 'manual', 'completed');
-
--- #5 Samsung Split 1.5HP: stocked in 25, 5 went out with a serial (net 20)
-INSERT INTO transactions (item_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status) VALUES
-(5, 'stock_in', 25, NULL, '2026-06-01', NULL, 'Initial stock (seed data).', 'auto', 'completed'),
-(5, 'stock_out', 5, 'SM-SN-2024-0456', '2026-07-10', 'Roberto Cruz', 'Client delivery - residential installation.', 'manual', 'completed');
-
--- #6 Mitsubishi Electric Split 2.5HP: single stock-in
-INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, notes, source, status) VALUES
-(6, 'stock_in', 6, '2026-06-25', 'Initial stock (seed data).', 'auto', 'completed');
-
--- #7 R32 Refrigerant Gas: stocked in 25, plus a pending Item Request (no stock deducted yet)
-INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, notes, source, status) VALUES
-(7, 'stock_in', 25, '2026-06-05', 'Initial stock (seed data).', 'auto', 'completed');
+-- #1 Daikin Split FTKC25XVM - Item Request, completed
 INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
-(7, 'item_request', 5, '2026-08-20', 'Juan Dela Cruz', 'Requested for scheduled maintenance job - PO#2026-0892.', 'manual', 'pending');
+(1, 'item_request', 2, '2026-07-20', 'Roberto Cruz', 'Requested for an installation job at Barangay Lahug.', 'manual', 'completed');
 
--- #8, #9, #10 - consumables, single stock-in each
-INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, notes, source, status) VALUES
-(8, 'stock_in', 60, '2026-06-05', 'Initial stock (seed data).', 'auto', 'completed'),
-(9, 'stock_in', 200, '2026-06-05', 'Initial stock (seed data).', 'auto', 'completed'),
-(10, 'stock_in', 30, '2026-06-05', 'Initial stock (seed data).', 'auto', 'completed');
+-- #2 Carrier Window 51QAC12 - Item Request, declined
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(2, 'item_request', 1, '2026-08-05', 'Maria Santos', 'Declined - insufficient documentation, needs supervisor approval.', 'manual', 'declined');
 
--- #11 Daikin Window 1.0HP: stocked in 3, all 3 went out with a serial (net 0 - out of stock)
-INSERT INTO transactions (item_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status) VALUES
-(11, 'stock_in', 3, NULL, '2026-04-15', NULL, 'Initial stock (seed data).', 'auto', 'completed'),
-(11, 'stock_out', 3, 'DK-SN-2022-0033', '2026-06-25', 'Ana Reyes', 'Last unit sold - awaiting restock.', 'manual', 'completed');
+-- #3 Panasonic Floor S-24PU1U5B - Borrowed for a trade show, then returned
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(3, 'borrow', 1, '2026-07-01', 'Ana Reyes', 'Borrowed for a trade show display unit.', 'manual', 'completed'),
+(3, 'return', 1, '2026-07-08', 'Ana Reyes', 'Returned after the trade show.', 'manual', 'completed');
+
+-- #4 LG Cassette ATNQ36GPLE0 - Item Request, completed
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(4, 'item_request', 1, '2026-08-01', 'Roberto Cruz', 'Requested for a commercial installation - conference room unit.', 'manual', 'completed');
+
+-- #5 Samsung Split AR13AYHZAWK - Item Request, completed
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(5, 'item_request', 1, '2026-07-10', 'Roberto Cruz', 'Requested for a residential installation - client delivery.', 'manual', 'completed');
+
+-- #6 Mitsubishi Electric MSY-GL25VF - Borrowed for a site survey
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(6, 'borrow', 1, '2026-06-25', 'Juan Dela Cruz', 'Borrowed for a client site survey ahead of installation.', 'manual', 'completed');
+
+-- #7 R32 Refrigerant Gas Cylinder - Item Request, still pending
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(7, 'item_request', 5, '2026-08-20', 'Juan Dela Cruz', 'Requested for a scheduled maintenance job - PO#2026-0892.', 'manual', 'pending');
+
+-- #8 Copper Pipe Insulation Tape - Item Request, completed
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(8, 'item_request', 10, '2026-06-05', 'Ana Reyes', 'Requested for a copper line insulation job.', 'manual', 'completed');
+
+-- #9 PVC Drain Pipe - Item Request, completed
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(9, 'item_request', 15, '2026-06-10', 'Maria Santos', 'Requested for condensate drainage on a new install.', 'manual', 'completed');
+
+-- #10 AC Mounting Bracket Set - Borrowed for an emergency repair, then returned
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(10, 'borrow', 1, '2026-08-10', 'Roberto Cruz', 'Borrowed a spare bracket set for an emergency repair.', 'manual', 'completed'),
+(10, 'return', 1, '2026-08-12', 'Roberto Cruz', 'Returned after the repair job.', 'manual', 'completed');
+
+-- #11 Daikin Window FACQ10 - Item Request, completed
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(11, 'item_request', 1, '2026-06-25', 'Ana Reyes', 'Requested for a client delivery.', 'manual', 'completed');

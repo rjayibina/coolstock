@@ -4,10 +4,11 @@ require_once __DIR__ . '/../Models/InventoryItem.php';
 
 /**
  * TransactionController.php
- * Handles Stock-In, Stock-Out, Item Request, Borrow, and Return.
- * Every create() call also adjusts inventory_items.quantity_on_hand so
- * the Products list always reflects the ledger. Delete reverses that
- * same adjustment before removing the row, so the two stay in sync.
+ * Handles Item Request, Borrow, and Return. These are plain activity-log
+ * entries - creating one never touches a product's stock level (there is
+ * no stock level left to touch; see migration_remove_stock_tracking.sql).
+ * Item Request keeps its pending -> approve/decline workflow, but
+ * approving one no longer deducts anything.
  */
 class TransactionController
 {
@@ -74,58 +75,28 @@ class TransactionController
                 $type = $_POST['transaction_type'];
                 $qty = (int) $_POST['quantity'];
                 $isRequest = $type === 'item_request';
-                $delta = Transaction::stockDelta($type, $qty);
 
-                $current = $this->item->readOne($itemId);
-                $serialNumber = trim($_POST['serial_number'] ?? '');
+                $this->transaction->item_id = $itemId;
+                $this->transaction->transaction_type = $type;
+                $this->transaction->quantity = $qty;
+                $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+                $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
+                $this->transaction->notes = trim($_POST['notes'] ?? '');
+                $this->transaction->status = $isRequest ? 'pending' : 'completed';
 
-                // Item Requests don't touch stock at creation time - the
-                // sufficiency check happens later, when the request is approved.
-                if (!$isRequest && $delta < 0 && $current && ($current['quantity_on_hand'] + $delta) < 0) {
-                    $error = "Not enough stock: only {$current['quantity_on_hand']} {$current['unit_of_measure']} available.";
-                } elseif ($type === 'stock_out' && $current && !empty($current['requires_serial']) && $serialNumber === '') {
-                    $error = "Serial number is required to stock out this product.";
-                } else {
-                    $this->transaction->item_id = $itemId;
-                    $this->transaction->transaction_type = $type;
-                    $this->transaction->quantity = $qty;
-                    $this->transaction->serial_number = $type === 'stock_out' ? ($serialNumber ?: null) : null;
-                    // Stock In/Out must always be logged as happening today - the
-                    // modal's date field is readonly for the same reason. Item
-                    // Request/Borrow/Return still allow picking the date, since
-                    // those come from the standalone Log Transaction page.
-                    $this->transaction->transaction_date = in_array($type, ['stock_in', 'stock_out'], true)
-                        ? date('Y-m-d')
-                        : (trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d'));
-                    $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
-                    $this->transaction->notes = trim($_POST['notes'] ?? '');
-                    $this->transaction->status = $isRequest ? 'pending' : 'completed';
-
-                    if ($this->transaction->create()) {
-                        if (!$isRequest) {
-                            $this->item->adjustQuantity($itemId, $delta);
-                        }
-                        $status = $isRequest ? 'requested' : 'created';
-
-                        // The Stock In/Out modal on the Products page sets this
-                        // so it lands back on Products instead of Transactions.
-                        if (($_POST['redirect_to'] ?? '') === 'products' && !$isRequest) {
-                            header("Location: index.php?module=products&action=index&status=stock_updated&type=$type");
-                            exit;
-                        }
-
-                        header("Location: index.php?module=transactions&action=index&status=$status");
-                        exit;
-                    }
-                    $error = "Something went wrong while logging the transaction.";
+                if ($this->transaction->create()) {
+                    $status = $isRequest ? 'requested' : 'created';
+                    header("Location: index.php?module=transactions&action=index&status=$status");
+                    exit;
                 }
+                $error = "Something went wrong while logging the transaction.";
             }
         }
 
         require __DIR__ . '/../Views/transactions/create.php';
     }
 
-    /** Approves a pending Item Request: deducts stock now and marks it completed */
+    /** Approves a pending Item Request: marks it completed. No stock effect - there's no stock level to deduct. */
     public function approve(): void
     {
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
@@ -138,16 +109,6 @@ class TransactionController
                 exit;
             }
 
-            $current = $this->item->readOne((int) $record['item_id']);
-            $quantity = (int) $record['quantity'];
-
-            if (!$current || $current['quantity_on_hand'] < $quantity) {
-                $available = $current['quantity_on_hand'] ?? 0;
-                header("Location: index.php?module=transactions&action=index&status=approve_insufficient&available=$available");
-                exit;
-            }
-
-            $this->item->adjustQuantity((int) $record['item_id'], -$quantity);
             $this->transaction->markCompleted($id);
         }
 
@@ -189,14 +150,6 @@ class TransactionController
                 continue;
             }
 
-            $current = $this->item->readOne((int) $record['item_id']);
-            $quantity = (int) $record['quantity'];
-            if (!$current || $current['quantity_on_hand'] < $quantity) {
-                $skipped++;
-                continue;
-            }
-
-            $this->item->adjustQuantity((int) $record['item_id'], -$quantity);
             $this->transaction->markCompleted($id);
             $approved++;
         }
@@ -217,9 +170,8 @@ class TransactionController
         if (!is_numeric($input['quantity'] ?? '') || (int) $input['quantity'] <= 0) {
             return "Quantity must be a positive number.";
         }
-        if (in_array($input['transaction_type'], ['item_request', 'borrow', 'return'], true)
-            && trim($input['technician_name'] ?? '') === '') {
-            return "Technician name is required for item requests, borrows, and returns.";
+        if (trim($input['technician_name'] ?? '') === '') {
+            return "Technician name is required.";
         }
         return null;
     }

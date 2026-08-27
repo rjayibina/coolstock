@@ -102,26 +102,22 @@ function categoryPageUrl(int $page): string
                     <thead>
                         <tr>
                             <th style="width:36px;"><input type="checkbox" id="selectAllCategories" class="row-check" onclick="toggleAllCategories(this)"></th>
-                            <th>Category</th>
-                            <th>Description</th>
-                            <th>Products</th>
-                            <th>Created</th>
+                            <th style="width:60px;">ID</th>
+                            <th>Name</th>
                             <th style="width:190px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($categories)): ?>
                             <tr class="empty-row">
-                                <td colspan="6">No categories match these filters.</td>
+                                <td colspan="4">No categories match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($categories as $cat): ?>
                                 <tr>
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $cat['category_id'] ?>" class="row-check category-check" onchange="updateBulkBarCategories()"></td>
+                                    <td class="cell-id"><?= (int) $cat['category_id'] ?></td>
                                     <td><strong><?= htmlspecialchars($cat['category_name']) ?></strong></td>
-                                    <td class="cell-muted"><?= htmlspecialchars($cat['category_description'] ?: '—') ?></td>
-                                    <td class="cell-id"><?= (int) $cat['product_count'] ?></td>
-                                    <td class="cell-muted"><?= htmlspecialchars($cat['created_at']) ?></td>
                                     <td class="actions">
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditCategoryModal(<?= $cat['category_id'] ?>)">Edit</button>
                                         <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteCategoryModal(<?= $cat['category_id'] ?>)">Delete</button>
@@ -163,10 +159,6 @@ function categoryPageUrl(int $page): string
                         <input type="text" id="ac_category_name" name="category_name"
                                placeholder="e.g. Refrigeration Parts" required>
 
-                        <label for="ac_category_description">Description</label>
-                        <textarea id="ac_category_description" name="category_description"
-                                  placeholder="Optional notes about what belongs in this category"></textarea>
-
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Category</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('addCategoryModal')">Cancel</button>
@@ -188,9 +180,6 @@ function categoryPageUrl(int $page): string
 
                         <label for="ec_category_name">Category Name</label>
                         <input type="text" id="ec_category_name" name="category_name" required>
-
-                        <label for="ec_category_description">Description</label>
-                        <textarea id="ec_category_description" name="category_description"></textarea>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Category</button>
@@ -235,7 +224,6 @@ function categoryPageUrl(int $page): string
             document.getElementById('ec_category_id').value = id;
             document.getElementById('editCategoryForm').action = 'index.php?module=categories&action=edit&id=' + id;
             document.getElementById('ec_category_name').value = c.category_name || '';
-            document.getElementById('ec_category_description').value = c.category_description || '';
 
             document.getElementById('editCategoryModal').classList.add('open');
         }

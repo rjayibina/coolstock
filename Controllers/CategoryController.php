@@ -49,13 +49,11 @@ class CategoryController
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim($_POST['category_name'] ?? '');
-            $description = trim($_POST['category_description'] ?? '');
 
             if ($name === '') {
                 $error = "Category name is required.";
             } else {
                 $this->category->category_name = $name;
-                $this->category->category_description = $description;
 
                 if ($this->category->create()) {
                     header("Location: index.php?module=categories&action=index&status=created");
@@ -81,15 +79,13 @@ class CategoryController
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim($_POST['category_name'] ?? '');
-            $description = trim($_POST['category_description'] ?? '');
 
             if ($name === '') {
                 $error = "Category name is required.";
-                $data = ['category_id' => $id, 'category_name' => $name, 'category_description' => $description];
+                $data = ['category_id' => $id, 'category_name' => $name];
             } else {
                 $this->category->category_id = $id;
                 $this->category->category_name = $name;
-                $this->category->category_description = $description;
 
                 if ($this->category->update()) {
                     header("Location: index.php?module=categories&action=index&status=updated");

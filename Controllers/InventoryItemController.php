@@ -4,7 +4,6 @@ require_once __DIR__ . '/../Models/Category.php';
 require_once __DIR__ . '/../Models/Brand.php';
 require_once __DIR__ . '/../Models/ItemType.php';
 require_once __DIR__ . '/../Models/Location.php';
-require_once __DIR__ . '/../Models/Transaction.php';
 require_once __DIR__ . '/../Helpers/SpreadsheetReader.php';
 
 /**
@@ -19,8 +18,6 @@ class InventoryItemController
     private Brand $brand;
     private ItemType $itemType;
     private Location $location;
-    private Transaction $transaction;
-    private string $uploadDir;
 
     public function __construct()
     {
@@ -29,29 +26,26 @@ class InventoryItemController
         $this->brand = new Brand();
         $this->itemType = new ItemType();
         $this->location = new Location();
-        $this->transaction = new Transaction();
-        $this->uploadDir = __DIR__ . '/../assets/uploads/products/';
     }
 
     private const PER_PAGE = 10;
 
-    /** List all inventory items, optionally filtered by category / stock status, and paginated */
+    /** List all inventory items, optionally filtered by category / location, and paginated */
     public function index(): void
     {
         $categoryId = $_GET['category_id'] ?? null;
         $categoryId = ($categoryId === '') ? null : $categoryId;
-        $stockStatus = $_GET['stock_status'] ?? null;
         $locationId = $_GET['location_id'] ?? null;
         $locationId = ($locationId === '') ? null : $locationId;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->item->countFiltered($categoryId, $stockStatus, $locationId);
+        $totalCount = $this->item->countFiltered($categoryId, $locationId);
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $items = $this->item->readAll($categoryId, $stockStatus, $sort, self::PER_PAGE, $offset, $locationId);
+        $items = $this->item->readAll($categoryId, $sort, self::PER_PAGE, $offset, $locationId);
         $categories = $this->category->readAll();
         $brands = $this->brand->readAll();
         $itemTypes = $this->itemType->readAll();
@@ -72,11 +66,10 @@ class InventoryItemController
     {
         $categoryId = $_GET['category_id'] ?? null;
         $categoryId = ($categoryId === '') ? null : $categoryId;
-        $stockStatus = $_GET['stock_status'] ?? null;
         $locationId = $_GET['location_id'] ?? null;
         $locationId = ($locationId === '') ? null : $locationId;
 
-        $items = $this->item->readAll($categoryId, $stockStatus, null, null, null, $locationId);
+        $items = $this->item->readAll($categoryId, null, null, null, $locationId);
 
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="products_' . date('Y-m-d_His') . '.csv"');
@@ -84,21 +77,15 @@ class InventoryItemController
         $out = fopen('php://output', 'w');
         // Same column set the Import feature expects, so export/import round-trip cleanly.
         // brand_name / type_name / location_name are lookup columns (like category_name) -
-        // the actual FKs are brand_id / item_type_id / location_id. brand_code is
-        // read-only/informational (it lives on the brands table, not the item) and is
-        // ignored on import - only brand_name is used to resolve brand_id.
-        fputcsv($out, ['category_name', 'item_name', 'description', 'unit_of_measure', 'brand_name', 'brand_code', 'type_name', 'location_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year', 'quantity_on_hand', 'minimum_stock_level']);
+        // the actual FKs are brand_id / item_type_id / location_id.
+        fputcsv($out, ['category_name', 'brand_name', 'type_name', 'location_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year']);
         foreach ($items as $it) {
             fputcsv($out, [
                 $it['category_name'] ?? '',
-                $it['item_name'],
-                $it['description'],
-                $it['unit_of_measure'],
                 $it['brand_name'] ?? '',
-                $it['brand_code'] ?? '',
                 $it['type_name'] ?? '',
                 $it['location_name'] ?? '',
-                $it['model'] ?? '',
+                $it['model'],
                 $it['energy_rating'] ?? '',
                 $it['monthly_consumption'] ?? '',
                 $it['cooling_capacity'] ?? '',
@@ -106,8 +93,6 @@ class InventoryItemController
                 $it['installation_type'] ?? '',
                 $it['power_input'] ?? '',
                 $it['year'] ?? '',
-                $it['quantity_on_hand'],
-                $it['minimum_stock_level'],
             ]);
         }
         fclose($out);
@@ -127,23 +112,13 @@ class InventoryItemController
             $error = $this->validate($_POST);
 
             if (!$error) {
-                [$imagePath, $uploadError] = $this->handleImageUpload();
-                if ($uploadError) {
-                    $error = $uploadError;
-                } else {
-                    $this->hydrate($this->item, $_POST);
-                    $this->item->image_path = $imagePath;
+                $this->hydrate($this->item, $_POST);
 
-                    if ($this->item->create()) {
-                        $newItemId = $this->item->lastInsertId();
-                        if ($this->item->quantity_on_hand > 0) {
-                            $this->logAutoTransaction($newItemId, 'stock_in', $this->item->quantity_on_hand, 'Initial stock on product creation.');
-                        }
-                        header("Location: index.php?module=products&action=index&status=created");
-                        exit;
-                    }
-                    $error = "Something went wrong while saving the product.";
+                if ($this->item->create()) {
+                    header("Location: index.php?module=products&action=index&status=created");
+                    exit;
                 }
+                $error = "Something went wrong while saving the product.";
             }
         }
 
@@ -167,32 +142,17 @@ class InventoryItemController
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = $this->validate($_POST);
-            $existing = $this->item->readOne($id);
-            $data = array_merge($existing ?: [], ['item_id' => $id], $_POST);
+            $data = array_merge(['item_id' => $id], $_POST);
 
             if (!$error) {
-                [$imagePath, $uploadError] = $this->handleImageUpload($existing['image_path'] ?? null);
-                if ($uploadError) {
-                    $error = $uploadError;
-                } else {
-                    $this->item->item_id = $id;
-                    $this->hydrate($this->item, $_POST);
-                    $this->item->image_path = $imagePath;
+                $this->item->item_id = $id;
+                $this->hydrate($this->item, $_POST);
 
-                    $oldQuantity = (int) ($existing['quantity_on_hand'] ?? 0);
-                    $newQuantity = (int) $this->item->quantity_on_hand;
-
-                    if ($this->item->update()) {
-                        if ($newQuantity !== $oldQuantity) {
-                            $delta = $newQuantity - $oldQuantity;
-                            $type = $delta > 0 ? 'stock_in' : 'stock_out';
-                            $this->logAutoTransaction($id, $type, abs($delta), 'Stock adjusted via product edit.');
-                        }
-                        header("Location: index.php?module=products&action=index&status=updated");
-                        exit;
-                    }
-                    $error = "Something went wrong while updating the product.";
+                if ($this->item->update()) {
+                    header("Location: index.php?module=products&action=index&status=updated");
+                    exit;
                 }
+                $error = "Something went wrong while updating the product.";
             }
         } else {
             $data = $this->item->readOne($id);
@@ -221,55 +181,12 @@ class InventoryItemController
         exit;
     }
 
-    /** Bulk Stock In - only for products that already exist on the Products
-     *  page (selected via the bulk checkboxes). Quantity only, per product;
-     *  rows left blank or 0 are skipped. Always logged as today - same rule
-     *  as the single Stock In/Out modal. */
-    public function bulkStockIn(): void
-    {
-        $quantities = $_POST['quantities'] ?? [];
-        $notes = trim($_POST['notes'] ?? '');
-        $created = 0;
-
-        foreach ($quantities as $itemId => $qty) {
-            $itemId = (int) $itemId;
-            $qty = is_numeric($qty) ? (int) $qty : 0;
-
-            if ($itemId <= 0 || $qty <= 0) {
-                continue;
-            }
-
-            $this->transaction->item_id = $itemId;
-            $this->transaction->transaction_type = 'stock_in';
-            $this->transaction->quantity = $qty;
-            $this->transaction->serial_number = null;
-            $this->transaction->transaction_date = date('Y-m-d');
-            $this->transaction->technician_name = null;
-            $this->transaction->notes = $notes;
-            $this->transaction->source = 'manual';
-            $this->transaction->status = 'completed';
-
-            if ($this->transaction->create()) {
-                $this->item->adjustQuantity($itemId, $qty);
-                $created++;
-            }
-        }
-
-        $status = $created > 0 ? 'bulk_stock_in' : 'bulk_stock_in_empty';
-        header("Location: index.php?module=products&action=index&status=$status&count=$created");
-        exit;
-    }
-
-    /** Delete a product (and its uploaded image, if any) */
+    /** Delete a product */
     public function delete(): void
     {
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
         if ($id > 0) {
-            $existing = $this->item->readOne($id);
-            if ($existing && !empty($existing['image_path'])) {
-                $this->deleteImageFile($existing['image_path']);
-            }
             $this->item->delete($id);
         }
 
@@ -308,8 +225,9 @@ class InventoryItemController
             throw new RuntimeException("The file has no data rows below the header.");
         }
 
-        // Expected header: category_name, item_name, description, unit_of_measure,
-        //                   brand_name, type_name, location_name, quantity_on_hand, minimum_stock_level
+        // Expected header: category_name, brand_name, type_name, location_name,
+        //                   model, energy_rating, monthly_consumption, cooling_capacity,
+        //                   refrigerant, installation_type, power_input, year
         $header = array_map(fn($h) => strtolower(trim((string) $h)), array_shift($rows));
         $col = array_flip($header);
 
@@ -350,10 +268,10 @@ class InventoryItemController
             $brandName = strtolower(trim($row[$col['brand_name']] ?? ''));
             $typeName = strtolower(trim($row[$col['type_name']] ?? ''));
             $locationName = strtolower(trim($row[$col['location_name']] ?? ''));
-            $itemName = trim($row[$col['item_name']] ?? '');
+            $model = trim($row[$col['model']] ?? '');
 
-            if ($itemName === '') {
-                $skipped[] = "Row $rowNum: missing item_name.";
+            if ($model === '') {
+                $skipped[] = "Row $rowNum: missing model.";
                 continue;
             }
             if ($categoryName === '') {
@@ -377,25 +295,38 @@ class InventoryItemController
                 continue;
             }
 
+            $isAsset = $typeName === 'asset';
+            if ($isAsset) {
+                $missingSpec = null;
+                foreach (self::SPEC_FIELDS as $field => $label) {
+                    if (trim((string) ($row[$col[$field] ?? null] ?? '')) === '') {
+                        $missingSpec = $label;
+                        break;
+                    }
+                }
+                if ($missingSpec !== null) {
+                    $skipped[] = "Row $rowNum: $missingSpec is required when type_name is Asset.";
+                    continue;
+                }
+                if (!is_numeric($row[$col['monthly_consumption']] ?? '')) {
+                    $skipped[] = "Row $rowNum: monthly_consumption must be a number when type_name is Asset.";
+                    continue;
+                }
+            }
+
             $this->item->item_id = null;
             $this->item->category_id = $categoryByName[$categoryName] ?? null;
-            $this->item->item_name = $itemName;
-            $this->item->description = trim($row[$col['description']] ?? '');
-            $this->item->unit_of_measure = trim($row[$col['unit_of_measure']] ?? '');
             $this->item->brand_id = $brandByName[$brandName] ?? null;
             $this->item->item_type_id = $itemTypeByName[$typeName] ?? null;
             $this->item->location_id = $locationByName[$locationName] ?? null;
-            $this->item->model = isset($col['model']) ? (trim($row[$col['model']] ?? '') ?: null) : null;
-            $this->item->energy_rating = isset($col['energy_rating']) ? (trim($row[$col['energy_rating']] ?? '') ?: null) : null;
-            $this->item->monthly_consumption = isset($col['monthly_consumption']) && is_numeric($row[$col['monthly_consumption']] ?? '') ? (float) $row[$col['monthly_consumption']] : null;
-            $this->item->cooling_capacity = isset($col['cooling_capacity']) ? (trim($row[$col['cooling_capacity']] ?? '') ?: null) : null;
-            $this->item->refrigerant = isset($col['refrigerant']) ? (trim($row[$col['refrigerant']] ?? '') ?: null) : null;
-            $this->item->installation_type = isset($col['installation_type']) ? (trim($row[$col['installation_type']] ?? '') ?: null) : null;
-            $this->item->power_input = isset($col['power_input']) ? (trim($row[$col['power_input']] ?? '') ?: null) : null;
-            $this->item->year = isset($col['year']) && is_numeric($row[$col['year']] ?? '') ? (int) $row[$col['year']] : null;
-            $this->item->quantity_on_hand = (int) ($row[$col['quantity_on_hand']] ?? 0);
-            $this->item->minimum_stock_level = (int) ($row[$col['minimum_stock_level']] ?? 0);
-            $this->item->image_path = null;
+            $this->item->model = $model;
+            $this->item->energy_rating = $isAsset ? trim($row[$col['energy_rating']] ?? '') : null;
+            $this->item->monthly_consumption = $isAsset ? (float) $row[$col['monthly_consumption']] : null;
+            $this->item->cooling_capacity = $isAsset ? trim($row[$col['cooling_capacity']] ?? '') : null;
+            $this->item->refrigerant = $isAsset ? trim($row[$col['refrigerant']] ?? '') : null;
+            $this->item->installation_type = $isAsset ? trim($row[$col['installation_type']] ?? '') : null;
+            $this->item->power_input = $isAsset ? trim($row[$col['power_input']] ?? '') : null;
+            $this->item->year = $isAsset ? (int) $row[$col['year']] : null;
 
             if ($this->item->create()) {
                 $imported++;
@@ -407,35 +338,46 @@ class InventoryItemController
         return ['imported' => $imported, 'skipped' => $skipped];
     }
 
-    /** Shared validation for create + edit */
-    /** Logs a system-generated transaction (source='auto') - used when a product
-     *  is created with starting stock, or its quantity changes via direct edit.
-     *  Unlike manually logged transactions, these don't adjust stock themselves
-     *  (the create/update call already did that) - they're a record only. */
-    private function logAutoTransaction(int $itemId, string $type, int $quantity, string $notes): void
+    /** Whether the given item_type_id (nullable/blank allowed) is the "Asset" item type.
+     *  Technical Specifications are required and shown only for Asset - hidden and
+     *  optional for Consumable or when no item type is set. */
+    private function isAssetType(mixed $itemTypeId): bool
     {
-        $this->transaction->item_id = $itemId;
-        $this->transaction->transaction_type = $type;
-        $this->transaction->quantity = $quantity;
-        $this->transaction->technician_name = null;
-        $this->transaction->notes = $notes;
-        $this->transaction->source = 'auto';
-        $this->transaction->create();
+        if (empty($itemTypeId)) {
+            return false;
+        }
+        $type = $this->itemType->readOne((int) $itemTypeId);
+        return $type && $type['type_name'] === 'Asset';
     }
 
+    private const SPEC_FIELDS = [
+        'energy_rating' => 'Energy Rating',
+        'monthly_consumption' => 'Monthly Consumption',
+        'cooling_capacity' => 'Cooling Capacity',
+        'refrigerant' => 'Refrigerant',
+        'installation_type' => 'Installation Type',
+        'power_input' => 'Power Input',
+        'year' => 'Year',
+    ];
+
+    /** Shared validation for create + edit */
     private function validate(array $input): ?string
     {
-        if (trim($input['item_name'] ?? '') === '') {
-            return "Product name is required.";
+        if (trim($input['model'] ?? '') === '') {
+            return "Model is required.";
         }
         if (empty($input['category_id'])) {
             return "Category is required.";
         }
-        if (!is_numeric($input['quantity_on_hand'] ?? '') || $input['quantity_on_hand'] < 0) {
-            return "Quantity on hand must be a non-negative number.";
-        }
-        if (!is_numeric($input['minimum_stock_level'] ?? '') || $input['minimum_stock_level'] < 0) {
-            return "Minimum stock level must be a non-negative number.";
+        if ($this->isAssetType($input['item_type_id'] ?? null)) {
+            foreach (self::SPEC_FIELDS as $field => $label) {
+                if (trim((string) ($input[$field] ?? '')) === '') {
+                    return "$label is required for Asset item types.";
+                }
+            }
+            if (!is_numeric($input['monthly_consumption'] ?? '')) {
+                return "Monthly Consumption must be a number.";
+            }
         }
         if (!empty($input['year']) && (!is_numeric($input['year']) || $input['year'] < 1990 || $input['year'] > (int) date('Y') + 1)) {
             return "Year must be a valid model year.";
@@ -443,114 +385,25 @@ class InventoryItemController
         return null;
     }
 
-    /** Copies POST data onto an InventoryItem model instance */
+    /** Copies POST data onto an InventoryItem model instance. Technical
+     *  Specifications are only kept for the Asset item type - Consumable
+     *  (or no item type) always saves them as null, regardless of what
+     *  was submitted, since the form hides that section for those cases. */
     private function hydrate(InventoryItem $item, array $input): void
     {
+        $isAsset = $this->isAssetType($input['item_type_id'] ?? null);
+
         $item->category_id = !empty($input['category_id']) ? (int) $input['category_id'] : null;
-        $item->item_name = trim($input['item_name']);
-        $item->description = trim($input['description'] ?? '');
-        $item->unit_of_measure = trim($input['unit_of_measure'] ?? '');
         $item->brand_id = !empty($input['brand_id']) ? (int) $input['brand_id'] : null;
         $item->item_type_id = !empty($input['item_type_id']) ? (int) $input['item_type_id'] : null;
         $item->location_id = !empty($input['location_id']) ? (int) $input['location_id'] : null;
-        $item->model = trim($input['model'] ?? '') ?: null;
-        $item->energy_rating = trim($input['energy_rating'] ?? '') ?: null;
-        $item->monthly_consumption = is_numeric($input['monthly_consumption'] ?? '') ? (float) $input['monthly_consumption'] : null;
-        $item->cooling_capacity = trim($input['cooling_capacity'] ?? '') ?: null;
-        $item->refrigerant = trim($input['refrigerant'] ?? '') ?: null;
-        $item->installation_type = trim($input['installation_type'] ?? '') ?: null;
-        $item->power_input = trim($input['power_input'] ?? '') ?: null;
-        $item->year = is_numeric($input['year'] ?? '') ? (int) $input['year'] : null;
-        $item->quantity_on_hand = (int) $input['quantity_on_hand'];
-        $item->minimum_stock_level = (int) $input['minimum_stock_level'];
-    }
-
-    /**
-     * Handles an optional product_image upload. Returns [imagePath, error].
-     * $keepExisting is the current image_path (edit form) to fall back to
-     * when no new file was chosen.
-     */
-    private function handleImageUpload(?string $keepExisting = null): array
-    {
-        // "Remove image" checkbox takes effect only when no new file is chosen
-        // (uploading a new file always wins over a stale "remove" checkbox state)
-        if (empty($_FILES['product_image']['name']) && !empty($_POST['remove_image'])) {
-            if ($keepExisting) {
-                $this->deleteImageFile($keepExisting);
-            }
-            return [null, null];
-        }
-
-        if (empty($_FILES['product_image']['name'])) {
-            return [$keepExisting, null];
-        }
-
-        $file = $_FILES['product_image'];
-
-        if ($file['error'] !== UPLOAD_ERR_OK) {
-            $message = match ($file['error']) {
-                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE =>
-                    "That image is larger than this server allows (PHP's upload_max_filesize / post_max_size in php.ini — often 2MB by default on XAMPP). "
-                    . "Either use a smaller image or raise those two values in php.ini and restart Apache.",
-                UPLOAD_ERR_PARTIAL => "The image only partially uploaded. Please try again.",
-                UPLOAD_ERR_NO_TMP_DIR => "The server has no temporary folder configured for uploads.",
-                UPLOAD_ERR_CANT_WRITE => "The server couldn't write the uploaded file to disk.",
-                default => "Image upload failed (error code {$file['error']}). Please try again.",
-            };
-            return [$keepExisting, $message];
-        }
-
-        $allowed = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
-        $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-
-        if (!array_key_exists($extension, $allowed)) {
-            return [$keepExisting, "Product image must be a JPG, PNG, GIF, or WEBP file."];
-        }
-
-        // Verify the file's actual content matches an image, not just its extension
-        $imageInfo = @getimagesize($file['tmp_name']);
-        if ($imageInfo === false) {
-            return [$keepExisting, "That file doesn't look like a valid image. Please choose a JPG, PNG, GIF, or WEBP file."];
-        }
-
-        if ($file['size'] > 5 * 1024 * 1024) {
-            return [$keepExisting, "Product image must be smaller than 5MB."];
-        }
-
-        if (!is_dir($this->uploadDir)) {
-            if (!mkdir($this->uploadDir, 0755, true) && !is_dir($this->uploadDir)) {
-                $absolutePath = realpath(__DIR__ . '/../assets/uploads') ?: (__DIR__ . '/../assets/uploads');
-                return [$keepExisting, "The upload folder doesn't exist and couldn't be created automatically. "
-                    . "Create it manually at: {$absolutePath}/products"];
-            }
-        }
-
-        if (!is_writable($this->uploadDir)) {
-            $absolutePath = realpath($this->uploadDir) ?: $this->uploadDir;
-            return [$keepExisting, "The server can't write to the upload folder ({$absolutePath}). "
-                . "On XAMPP/macOS, run this in Terminal: chmod -R 775 \"{$absolutePath}\" "
-                . "— and make sure it's owned by the user Apache runs as (often _www)."];
-        }
-
-        $filename = uniqid('product_', true) . '.' . $extension;
-        if (!move_uploaded_file($file['tmp_name'], $this->uploadDir . $filename)) {
-            $absolutePath = realpath($this->uploadDir) ?: $this->uploadDir;
-            return [$keepExisting, "Could not save the uploaded image to {$absolutePath}. Check its permissions and that PHP's temp upload folder is accessible."];
-        }
-
-        // Replacing an image on edit - clean up the old file
-        if ($keepExisting) {
-            $this->deleteImageFile($keepExisting);
-        }
-
-        return ['assets/uploads/products/' . $filename, null];
-    }
-
-    private function deleteImageFile(string $imagePath): void
-    {
-        $fullPath = __DIR__ . '/../' . $imagePath;
-        if (is_file($fullPath)) {
-            @unlink($fullPath);
-        }
+        $item->model = trim($input['model']);
+        $item->energy_rating = $isAsset ? (trim($input['energy_rating'] ?? '') ?: null) : null;
+        $item->monthly_consumption = $isAsset && is_numeric($input['monthly_consumption'] ?? '') ? (float) $input['monthly_consumption'] : null;
+        $item->cooling_capacity = $isAsset ? (trim($input['cooling_capacity'] ?? '') ?: null) : null;
+        $item->refrigerant = $isAsset ? (trim($input['refrigerant'] ?? '') ?: null) : null;
+        $item->installation_type = $isAsset ? (trim($input['installation_type'] ?? '') ?: null) : null;
+        $item->power_input = $isAsset ? (trim($input['power_input'] ?? '') ?: null) : null;
+        $item->year = $isAsset && is_numeric($input['year'] ?? '') ? (int) $input['year'] : null;
     }
 }

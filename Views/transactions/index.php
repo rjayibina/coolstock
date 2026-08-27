@@ -62,7 +62,7 @@ require __DIR__ . '/../partials/header.php';
                     <select name="item_id" onchange="this.form.submit()">
                         <option value="">All Products</option>
                         <?php foreach ($items as $it): ?>
-                            <option value="<?= $it['item_id'] ?>" <?= ($currentItem == $it['item_id']) ? 'selected' : '' ?>><?= htmlspecialchars($it['item_name']) ?></option>
+                            <option value="<?= $it['item_id'] ?>" <?= ($currentItem == $it['item_id']) ? 'selected' : '' ?>><?= htmlspecialchars($it['model']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -92,21 +92,19 @@ require __DIR__ . '/../partials/header.php';
         </div>
 
         <?php if ($status === 'created'): ?>
-            <div class="alert alert-success">Transaction logged and stock updated.</div>
+            <div class="alert alert-success">Transaction logged.</div>
         <?php elseif ($status === 'requested'): ?>
-            <div class="alert alert-success">Item request logged as pending — stock won't be deducted until it's approved.</div>
+            <div class="alert alert-success">Item request logged as pending until it's approved.</div>
         <?php elseif ($status === 'approved'): ?>
-            <div class="alert alert-success">Request approved and stock deducted.</div>
+            <div class="alert alert-success">Request approved.</div>
         <?php elseif ($status === 'declined'): ?>
-            <div class="alert alert-success">Request declined. No stock was affected.</div>
-        <?php elseif ($status === 'approve_insufficient'): ?>
-            <div class="alert alert-warning">Can't approve — only <?= (int) ($_GET['available'] ?? 0) ?> in stock, which isn't enough to cover this request.</div>
+            <div class="alert alert-success">Request declined.</div>
         <?php elseif ($status === 'approve_invalid'): ?>
             <div class="alert alert-warning">That request has already been handled or doesn't exist.</div>
         <?php elseif ($status === 'bulk_approved'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> request<?= $bulkCount === 1 ? '' : 's' ?> approved.</div>
         <?php elseif ($status === 'bulk_approve_partial'): ?>
-            <div class="alert alert-warning"><?= $bulkCount ?> approved, <?= $bulkSkipped ?> skipped (not a pending request, or not enough stock).</div>
+            <div class="alert alert-warning"><?= $bulkCount ?> approved, <?= $bulkSkipped ?> skipped (not a pending request).</div>
         <?php endif; ?>
 
         <?php if ($error): ?>
@@ -156,7 +154,7 @@ require __DIR__ . '/../partials/header.php';
                             <?php foreach ($transactions as $t): ?>
                                 <tr class="transaction-row" onclick="handleTransactionRowClick(event, <?= $t['transaction_id'] ?>)">
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $t['transaction_id'] ?>" class="row-check transaction-check" onchange="updateBulkBarTransactions()"></td>
-                                    <td><strong><?= htmlspecialchars($t['item_name'] ?? 'Unknown product') ?></strong></td>
+                                    <td><strong><?= htmlspecialchars($t['model'] ?? 'Unknown product') ?></strong></td>
                                     <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
                                     <td class="cell-id"><?= (int) $t['quantity'] ?></td>
                                     <td class="cell-muted">
@@ -181,10 +179,10 @@ require __DIR__ . '/../partials/header.php';
                                         <?php if ($t['status'] === 'pending' && $t['transaction_type'] === 'item_request'): ?>
                                             <a href="index.php?module=transactions&action=approve&id=<?= $t['transaction_id'] ?>"
                                                class="btn btn-sm" style="background:var(--success-bg);color:var(--success);"
-                                               onclick="event.stopPropagation(); return confirm('Approve this request? Stock will be deducted now.');">Approve</a>
+                                               onclick="event.stopPropagation(); return confirm('Approve this request?');">Approve</a>
                                             <a href="index.php?module=transactions&action=decline&id=<?= $t['transaction_id'] ?>"
                                                class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);"
-                                               onclick="event.stopPropagation(); return confirm('Decline this request? No stock will be affected.');">Decline</a>
+                                               onclick="event.stopPropagation(); return confirm('Decline this request?');">Decline</a>
                                         <?php else: ?>
                                             <span class="cell-muted">—</span>
                                         <?php endif; ?>
@@ -229,7 +227,6 @@ require __DIR__ . '/../partials/header.php';
                         <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Quantity</td><td id="vtm-quantity" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Technician</td><td id="vtm-technician" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Date</td><td id="vtm-date" style="padding:6px 0;font-weight:600;"></td></tr>
-                        <tr id="vtm-serial-row" style="display:none;"><td style="padding:6px 0;color:var(--text-muted);">Serial Number</td><td id="vtm-serial" style="padding:6px 0;font-weight:600;"></td></tr>
                     </table>
                     <div style="margin-top:14px;">
                         <div style="color:var(--text-muted);font-size:12.5px;font-weight:600;margin-bottom:4px;">Notes</div>
@@ -273,19 +270,11 @@ require __DIR__ . '/../partials/header.php';
             const t = transactionsData[id];
             if (!t) return;
 
-            document.getElementById('vtm-product').textContent = t.item_name || 'Unknown product';
+            document.getElementById('vtm-product').textContent = t.model || 'Unknown product';
             document.getElementById('vtm-quantity').textContent = t.quantity;
             document.getElementById('vtm-technician').textContent = t.source === 'auto' ? 'System' : (t.technician_name || '—');
             document.getElementById('vtm-date').textContent = t.created_at;
             document.getElementById('vtm-notes').textContent = t.notes || 'No notes for this transaction.';
-
-            const serialRow = document.getElementById('vtm-serial-row');
-            if (t.transaction_type === 'stock_out' && t.serial_number) {
-                document.getElementById('vtm-serial').textContent = t.serial_number;
-                serialRow.style.display = '';
-            } else {
-                serialRow.style.display = 'none';
-            }
 
             const typeEl = document.getElementById('vtm-type');
             typeEl.textContent = t.transaction_type.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase());

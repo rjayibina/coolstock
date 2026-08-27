@@ -1,7 +1,7 @@
 <?php
 /**
  * Views/dashboard/index.php
- * Expects: $stats, $lowStockItems, $recentTransactions,
+ * Expects: $stats, $recentTransactions,
  *          $productsByCategory, $transactionsByType, $dbError
  */
 require_once __DIR__ . '/../../Models/Transaction.php';
@@ -15,9 +15,7 @@ $maxCategoryCount = max($maxCategoryCount, 1);
 $maxTypeCount = max($maxTypeCount, 1);
 
 $typeColors = [
-    'stock_in' => '#16A34A',
     'return' => '#16A34A',
-    'stock_out' => '#4C5FD5',
     'item_request' => '#9333EA',
     'borrow' => '#D97706',
 ];
@@ -40,10 +38,6 @@ $typeColors = [
             <div class="stat-card">
                 <div class="stat-label">Categories</div>
                 <div class="stat-value"><?= $stats['total_categories'] ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Low Stock Alerts</div>
-                <div class="stat-value <?= $stats['low_stock'] > 0 ? 'warn' : '' ?>"><?= $stats['low_stock'] ?></div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Total Transactions</div>
@@ -87,36 +81,6 @@ $typeColors = [
             </div>
         </div>
 
-        <div class="section-title">Low Stock Products</div>
-        <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Brand</th>
-                        <th>On Hand</th>
-                        <th>Minimum</th>
-                        <th>Category</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($lowStockItems)): ?>
-                        <tr class="empty-row"><td colspan="3">Nothing is low on stock right now.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($lowStockItems as $it): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($it['item_name']) ?></strong></td>
-                                <td class="cell-id"><?= htmlspecialchars($it['brand_name'] ?? '—') ?></td>
-                                <td class="cell-id"><?= (int) $it['quantity_on_hand'] ?></td>
-                                <td class="cell-id"><?= (int) $it['minimum_stock_level'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-
         <div class="section-title">Recent Transactions</div>
         <div class="table-card">
             <table>
@@ -135,7 +99,7 @@ $typeColors = [
                     <?php else: ?>
                         <?php foreach ($recentTransactions as $t): ?>
                             <tr>
-                                <td><strong><?= htmlspecialchars($t['item_name'] ?? 'Unknown product') ?></strong></td>
+                                <td><strong><?= htmlspecialchars($t['model'] ?? 'Unknown product') ?></strong></td>
                                 <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
                                 <td class="cell-muted">
                                     <?php if ($t['source'] === 'auto'): ?>

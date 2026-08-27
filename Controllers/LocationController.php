@@ -16,19 +16,18 @@ class LocationController
         $this->location = new Location();
     }
 
-    /** List all locations, filtered by product count, sorted, and paginated */
+    /** List all locations, sorted and paginated */
     public function index(): void
     {
-        $productFilter = $_GET['has_products'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->location->countFiltered($productFilter);
+        $totalCount = $this->location->count();
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $locations = $this->location->readAllWithCounts($productFilter, $sort, self::PER_PAGE, $offset);
+        $locations = $this->location->readAllPaged($sort, self::PER_PAGE, $offset);
 
         $pagination = [
             'page' => $page,

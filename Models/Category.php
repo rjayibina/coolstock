@@ -3,19 +3,16 @@ require_once __DIR__ . '/../Config/Database.php';
 
 /**
  * Category.php (Model)
- * Represents a single row of the item_categories table and
- * contains all the SQL logic for Create, Read, Update, Delete.
+ * Represents a single row of the item_categories table: just an ID and
+ * a Name, matching the ERD's tblCategories exactly.
  */
 class Category
 {
     private PDO $conn;
     private string $table = "item_categories";
 
-    // Public properties map directly to table columns
     public ?int $category_id = null;
     public ?string $category_name = null;
-    public ?string $category_description = null;
-    public ?string $created_at = null;
 
     public function __construct()
     {
@@ -25,13 +22,9 @@ class Category
     /** CREATE - insert a new category */
     public function create(): bool
     {
-        $query = "INSERT INTO {$this->table} (category_name, category_description)
-                  VALUES (:category_name, :category_description)";
-
+        $query = "INSERT INTO {$this->table} (category_name) VALUES (:category_name)";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':category_name', $this->category_name);
-        $stmt->bindParam(':category_description', $this->category_description);
-
         return $stmt->execute();
     }
 
@@ -44,7 +37,6 @@ class Category
         return $stmt->fetchAll();
     }
 
-    /** READ - every category with its product count, most recent first (Categories page card layout) */
     /** $productFilter: 'has' (only categories with 1+ products), 'empty' (only categories with 0), or null (all) */
     public const SORT_OPTIONS = [
         'newest' => 'c.category_id DESC',
@@ -132,16 +124,10 @@ class Category
     /** UPDATE - edit an existing category */
     public function update(): bool
     {
-        $query = "UPDATE {$this->table}
-                  SET category_name = :category_name,
-                      category_description = :category_description
-                  WHERE category_id = :category_id";
-
+        $query = "UPDATE {$this->table} SET category_name = :category_name WHERE category_id = :category_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':category_name', $this->category_name);
-        $stmt->bindParam(':category_description', $this->category_description);
         $stmt->bindParam(':category_id', $this->category_id, PDO::PARAM_INT);
-
         return $stmt->execute();
     }
 

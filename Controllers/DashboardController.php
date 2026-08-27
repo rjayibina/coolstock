@@ -19,8 +19,7 @@ class DashboardController
         $transaction = new Transaction();
 
         $dbError = null;
-        $stats = ['total_products' => 0, 'total_categories' => 0, 'low_stock' => 0, 'total_transactions' => 0];
-        $lowStockItems = [];
+        $stats = ['total_products' => 0, 'total_categories' => 0, 'total_transactions' => 0];
         $recentTransactions = [];
         $productsByCategory = [];
         $transactionsByType = [];
@@ -28,8 +27,6 @@ class DashboardController
         try {
             $stats['total_products'] = $item->count();
             $stats['total_categories'] = $category->count();
-            $stats['low_stock'] = $item->countLowStock();
-            $lowStockItems = array_filter($item->readAll(), fn($i) => $i['quantity_on_hand'] <= $i['minimum_stock_level']);
             $productsByCategory = $category->countProductsByCategory();
         } catch (PDOException $e) {
             $dbError = "Could not load product/category data: " . $e->getMessage();

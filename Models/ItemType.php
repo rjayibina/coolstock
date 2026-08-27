@@ -3,7 +3,8 @@ require_once __DIR__ . '/../Config/Database.php';
 
 /**
  * ItemType.php (Model)
- * Represents a single row of the item_types table (e.g. "Asset", "Consumable").
+ * Represents a single row of the item_types table: just an ID and a
+ * Name, matching the ERD's tblItemType exactly.
  */
 class ItemType
 {
@@ -12,11 +13,6 @@ class ItemType
 
     public ?int $item_type_id = null;
     public ?string $type_name = null;
-    // Whether products of this item type get a Serial Number requirement on
-    // Stock Out (1 = yes, e.g. Asset; 0 = no, e.g. Consumable). See
-    // migration_move_requires_serial_to_itemtype.sql.
-    public int $requires_serial = 1;
-    public ?string $created_at = null;
 
     public function __construct()
     {
@@ -26,10 +22,9 @@ class ItemType
     /** CREATE - insert a new item type */
     public function create(): bool
     {
-        $query = "INSERT INTO {$this->table} (type_name, requires_serial) VALUES (:type_name, :requires_serial)";
+        $query = "INSERT INTO {$this->table} (type_name) VALUES (:type_name)";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':type_name', $this->type_name);
-        $stmt->bindParam(':requires_serial', $this->requires_serial, PDO::PARAM_INT);
         return $stmt->execute();
     }
 
@@ -43,8 +38,8 @@ class ItemType
     }
 
     private const SORT_OPTIONS = [
-        'newest' => 't.created_at DESC',
-        'oldest' => 't.created_at ASC',
+        'newest' => 't.item_type_id DESC',
+        'oldest' => 't.item_type_id ASC',
         'name_asc' => 't.type_name ASC',
         'name_desc' => 't.type_name DESC',
         'products_desc' => 'product_count DESC',
@@ -54,19 +49,12 @@ class ItemType
     /** READ - every item type with its product count, filtered/sorted/paginated
      *  for the Item Types list page. $sort picks an ORDER BY from
      *  self::SORT_OPTIONS (defaults to newest first). */
-    public function readAllWithCounts(?string $productFilter = null, ?string $serialFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
         $query = "SELECT t.*, COUNT(i.item_id) AS product_count
                   FROM {$this->table} t
-                  LEFT JOIN inventory_items i ON i.item_type_id = t.item_type_id";
-
-        if ($serialFilter === 'yes') {
-            $query .= " WHERE t.requires_serial = 1";
-        } elseif ($serialFilter === 'no') {
-            $query .= " WHERE t.requires_serial = 0";
-        }
-
-        $query .= " GROUP BY t.item_type_id";
+                  LEFT JOIN inventory_items i ON i.item_type_id = t.item_type_id
+                  GROUP BY t.item_type_id";
 
         if ($productFilter === 'has') {
             $query .= " HAVING product_count > 0";
@@ -90,21 +78,14 @@ class ItemType
         return $stmt->fetchAll();
     }
 
-    /** Count of item types matching the same filters as readAllWithCounts() - powers pagination */
-    public function countFiltered(?string $productFilter = null, ?string $serialFilter = null): int
+    /** Count of item types matching the same filter as readAllWithCounts() - powers pagination */
+    public function countFiltered(?string $productFilter = null): int
     {
         $query = "SELECT COUNT(*) AS total FROM (
                     SELECT t.item_type_id, COUNT(i.item_id) AS product_count
                     FROM {$this->table} t
-                    LEFT JOIN inventory_items i ON i.item_type_id = t.item_type_id";
-
-        if ($serialFilter === 'yes') {
-            $query .= " WHERE t.requires_serial = 1";
-        } elseif ($serialFilter === 'no') {
-            $query .= " WHERE t.requires_serial = 0";
-        }
-
-        $query .= " GROUP BY t.item_type_id";
+                    LEFT JOIN inventory_items i ON i.item_type_id = t.item_type_id
+                    GROUP BY t.item_type_id";
 
         if ($productFilter === 'has') {
             $query .= " HAVING product_count > 0";
@@ -131,10 +112,9 @@ class ItemType
     /** UPDATE - edit an existing item type */
     public function update(): bool
     {
-        $query = "UPDATE {$this->table} SET type_name = :type_name, requires_serial = :requires_serial WHERE item_type_id = :item_type_id";
+        $query = "UPDATE {$this->table} SET type_name = :type_name WHERE item_type_id = :item_type_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':type_name', $this->type_name);
-        $stmt->bindParam(':requires_serial', $this->requires_serial, PDO::PARAM_INT);
         $stmt->bindParam(':item_type_id', $this->item_type_id, PDO::PARAM_INT);
         return $stmt->execute();
     }
