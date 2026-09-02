@@ -1,24 +1,31 @@
 <?php
 require_once __DIR__ . '/../Models/Transaction.php';
 require_once __DIR__ . '/../Models/InventoryItem.php';
+require_once __DIR__ . '/../Models/ItemStock.php';
 
 /**
  * TransactionController.php
- * Handles Item Request, Borrow, and Return. These are plain activity-log
- * entries - creating one never touches a product's stock level (there is
- * no stock level left to touch; see migration_remove_stock_tracking.sql).
+ * Handles all five transaction types. Item Request, Borrow, and Return
+ * are plain activity-log entries - creating one never touches a
+ * product's stock level. Stock In/Out are the exception: each one is
+ * paired with an ItemStock::adjust() call here to keep that location's
+ * quantity in sync (see item_stock, migration_add_stock_by_location.sql).
  * Item Request keeps its pending -> approve/decline workflow, but
- * approving one no longer deducts anything.
+ * approving one still doesn't move any stock - only Stock In/Out do.
  */
 class TransactionController
 {
     private Transaction $transaction;
     private InventoryItem $item;
+    private ItemStock $itemStock;
+
+    private const STOCK_TYPES = ['stock_in', 'stock_out'];
 
     public function __construct()
     {
         $this->transaction = new Transaction();
         $this->item = new InventoryItem();
+        $this->itemStock = new ItemStock();
     }
 
     private const PER_PAGE = 10;
@@ -59,7 +66,9 @@ class TransactionController
         require __DIR__ . '/../Views/transactions/index.php';
     }
 
-    /** Show + handle the "log transaction" form */
+    /** Show + handle the "log transaction" form, and the Products page's
+     *  Stock In/Out modal (both POST here; the modal also sets
+     *  redirect_to=products and location_id). */
     public function create(): void
     {
         $error = null;
@@ -68,15 +77,33 @@ class TransactionController
         $prefillType = $_GET['type'] ?? null;
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $type = $_POST['transaction_type'] ?? '';
+            $isStock = in_array($type, self::STOCK_TYPES, true);
+            $toProducts = ($_POST['redirect_to'] ?? '') === 'products';
+
             $error = $this->validate($_POST);
+            $itemId = (int) ($_POST['item_id'] ?? 0);
+            $locationId = (int) ($_POST['location_id'] ?? 0);
+            $qty = (int) ($_POST['quantity'] ?? 0);
+
+            // Stock Out can't take a location below zero - checked separately
+            // from validate() so the message can include how much is available.
+            if (!$error && $type === 'stock_out') {
+                $available = $this->itemStock->getQuantity($itemId, $locationId);
+                if ($qty > $available) {
+                    if ($toProducts) {
+                        header("Location: index.php?module=products&action=index&status=stock_out_insufficient&available=$available");
+                        exit;
+                    }
+                    $error = "Not enough stock at that location: only $available available.";
+                }
+            }
 
             if (!$error) {
-                $itemId = (int) $_POST['item_id'];
-                $type = $_POST['transaction_type'];
-                $qty = (int) $_POST['quantity'];
                 $isRequest = $type === 'item_request';
 
                 $this->transaction->item_id = $itemId;
+                $this->transaction->location_id = $isStock ? $locationId : null;
                 $this->transaction->transaction_type = $type;
                 $this->transaction->quantity = $qty;
                 $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
@@ -85,6 +112,16 @@ class TransactionController
                 $this->transaction->status = $isRequest ? 'pending' : 'completed';
 
                 if ($this->transaction->create()) {
+                    if ($isStock) {
+                        $delta = $type === 'stock_in' ? $qty : -$qty;
+                        $this->itemStock->adjust($itemId, $locationId, $delta);
+                    }
+
+                    if ($toProducts) {
+                        header("Location: index.php?module=products&action=index&status=$type");
+                        exit;
+                    }
+
                     $status = $isRequest ? 'requested' : 'created';
                     header("Location: index.php?module=transactions&action=index&status=$status");
                     exit;
@@ -169,6 +206,9 @@ class TransactionController
         }
         if (!is_numeric($input['quantity'] ?? '') || (int) $input['quantity'] <= 0) {
             return "Quantity must be a positive number.";
+        }
+        if (in_array($input['transaction_type'], self::STOCK_TYPES, true) && empty($input['location_id'])) {
+            return "Please select a location.";
         }
         if (trim($input['technician_name'] ?? '') === '') {
             return "Technician name is required.";

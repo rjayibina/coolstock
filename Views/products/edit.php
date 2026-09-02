@@ -1,7 +1,7 @@
 <?php
 /**
  * Views/products/edit.php
- * Expects: $data (array - current item row), $error (string|null), $categories (array), $brands (array), $itemTypes (array), $locations (array)
+ * Expects: $data (array - current item row), $error (string|null), $categories (array), $brands (array), $itemTypes (array)
  */
 $pageTitle = 'Edit Product';
 $activeSection = 'inventory';
@@ -54,14 +54,6 @@ require __DIR__ . '/../partials/header.php';
                     <option value="">No item type</option>
                     <?php foreach ($itemTypes as $t): ?>
                         <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>" <?= (string) ($data['item_type_id'] ?? '') === (string) $t['item_type_id'] ? 'selected' : '' ?>><?= htmlspecialchars($t['type_name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
-
-                <label for="location_id">Location <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                <select id="location_id" name="location_id">
-                    <option value="">No location</option>
-                    <?php foreach ($locations as $loc): ?>
-                        <option value="<?= $loc['location_id'] ?>" <?= (string) ($data['location_id'] ?? '') === (string) $loc['location_id'] ? 'selected' : '' ?>><?= htmlspecialchars($loc['location_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
 

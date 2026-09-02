@@ -37,7 +37,6 @@ class Category
         return $stmt->fetchAll();
     }
 
-    /** $productFilter: 'has' (only categories with 1+ products), 'empty' (only categories with 0), or null (all) */
     public const SORT_OPTIONS = [
         'newest' => 'c.category_id DESC',
         'oldest' => 'c.category_id ASC',
@@ -48,18 +47,12 @@ class Category
     ];
 
     /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
-    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    public function readAllWithCounts(?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
         $query = "SELECT c.*, COUNT(i.item_id) AS product_count
                   FROM {$this->table} c
                   LEFT JOIN inventory_items i ON i.category_id = c.category_id
                   GROUP BY c.category_id";
-
-        if ($productFilter === 'has') {
-            $query .= " HAVING product_count > 0";
-        } elseif ($productFilter === 'empty') {
-            $query .= " HAVING product_count = 0";
-        }
 
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
         $query .= " ORDER BY {$orderBy}";
@@ -75,27 +68,6 @@ class Category
         }
         $stmt->execute();
         return $stmt->fetchAll();
-    }
-
-    /** Count of categories matching the same filter as readAllWithCounts() - powers pagination */
-    public function countFiltered(?string $productFilter = null): int
-    {
-        $query = "SELECT COUNT(*) AS total FROM (
-                    SELECT c.category_id, COUNT(i.item_id) AS product_count
-                    FROM {$this->table} c
-                    LEFT JOIN inventory_items i ON i.category_id = c.category_id
-                    GROUP BY c.category_id";
-
-        if ($productFilter === 'has') {
-            $query .= " HAVING product_count > 0";
-        } elseif ($productFilter === 'empty') {
-            $query .= " HAVING product_count = 0";
-        }
-
-        $query .= ") AS sub";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
-        return (int) $stmt->fetch()['total'];
     }
 
     /** Product count per category - used for the Dashboard bar chart */
@@ -140,7 +112,7 @@ class Category
         return $stmt->execute();
     }
 
-    /** Count of all categories - used on the Dashboard */
+    /** Count of all categories - used on the Dashboard and to power pagination on the Categories list page */
     public function count(): int
     {
         $stmt = $this->conn->query("SELECT COUNT(*) AS total FROM {$this->table}");

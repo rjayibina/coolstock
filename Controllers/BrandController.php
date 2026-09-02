@@ -16,19 +16,18 @@ class BrandController
         $this->brand = new Brand();
     }
 
-    /** List all brands, filtered by product count, sorted, and paginated */
+    /** List all brands, sorted and paginated */
     public function index(): void
     {
-        $productFilter = $_GET['has_products'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->brand->countFiltered($productFilter);
+        $totalCount = $this->brand->count();
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $brands = $this->brand->readAllWithCounts($productFilter, $sort, self::PER_PAGE, $offset);
+        $brands = $this->brand->readAllWithCounts($sort, self::PER_PAGE, $offset);
 
         $pagination = [
             'page' => $page,
@@ -103,6 +102,22 @@ class BrandController
         }
 
         header("Location: index.php?module=brands&action=index&status=deleted");
+        exit;
+    }
+
+    /** Bulk delete a set of brands - skips any still holding products */
+    public function bulkDelete(): void
+    {
+        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
+
+        if (!empty($ids)) {
+            $result = $this->brand->bulkDelete($ids);
+            $status = !empty($result['skipped']) ? 'bulk_partial' : 'bulk_deleted';
+            header("Location: index.php?module=brands&action=index&status=$status&count=" . count($result['deleted']) . "&skipped=" . count($result['skipped']));
+            exit;
+        }
+
+        header("Location: index.php?module=brands&action=index");
         exit;
     }
 }

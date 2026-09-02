@@ -46,21 +46,15 @@ class ItemType
         'products_asc' => 'product_count ASC',
     ];
 
-    /** READ - every item type with its product count, filtered/sorted/paginated
-     *  for the Item Types list page. $sort picks an ORDER BY from
+    /** READ - every item type with its product count, sorted/paginated for
+     *  the Item Types list page. $sort picks an ORDER BY from
      *  self::SORT_OPTIONS (defaults to newest first). */
-    public function readAllWithCounts(?string $productFilter = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    public function readAllWithCounts(?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
         $query = "SELECT t.*, COUNT(i.item_id) AS product_count
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON i.item_type_id = t.item_type_id
                   GROUP BY t.item_type_id";
-
-        if ($productFilter === 'has') {
-            $query .= " HAVING product_count > 0";
-        } elseif ($productFilter === 'empty') {
-            $query .= " HAVING product_count = 0";
-        }
 
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
         $query .= " ORDER BY {$orderBy}";
@@ -76,27 +70,6 @@ class ItemType
         }
         $stmt->execute();
         return $stmt->fetchAll();
-    }
-
-    /** Count of item types matching the same filter as readAllWithCounts() - powers pagination */
-    public function countFiltered(?string $productFilter = null): int
-    {
-        $query = "SELECT COUNT(*) AS total FROM (
-                    SELECT t.item_type_id, COUNT(i.item_id) AS product_count
-                    FROM {$this->table} t
-                    LEFT JOIN inventory_items i ON i.item_type_id = t.item_type_id
-                    GROUP BY t.item_type_id";
-
-        if ($productFilter === 'has') {
-            $query .= " HAVING product_count > 0";
-        } elseif ($productFilter === 'empty') {
-            $query .= " HAVING product_count = 0";
-        }
-
-        $query .= ") AS sub";
-        $stmt = $this->conn->prepare($query);
-        $stmt->execute();
-        return (int) $stmt->fetch()['total'];
     }
 
     /** READ - single item type by id */
@@ -128,7 +101,7 @@ class ItemType
         return $stmt->execute();
     }
 
-    /** Count of all item types - used on the Dashboard */
+    /** Count of all item types - used on the Dashboard and to power pagination on the Item Types list page */
     public function count(): int
     {
         $stmt = $this->conn->query("SELECT COUNT(*) AS total FROM {$this->table}");
@@ -144,5 +117,23 @@ class ItemType
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         return (int) $stmt->fetch()['total'] > 0;
+    }
+
+    /** Bulk delete - skips any item type that still has products, returns [deleted, skipped] ids */
+    public function bulkDelete(array $ids): array
+    {
+        $deleted = [];
+        $skipped = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($this->hasLinkedItems($id)) {
+                $skipped[] = $id;
+                continue;
+            }
+            if ($this->delete($id)) {
+                $deleted[] = $id;
+            }
+        }
+        return ['deleted' => $deleted, 'skipped' => $skipped];
     }
 }

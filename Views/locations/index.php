@@ -5,6 +5,8 @@
  *          $pagination (array: page, perPage, totalCount, totalPages)
  */
 $status = $_GET['status'] ?? null;
+$bulkCount = (int) ($_GET['count'] ?? 0);
+$bulkSkipped = (int) ($_GET['skipped'] ?? 0);
 $currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Locations';
 $activeSection = 'inventory';
@@ -46,6 +48,10 @@ function locationPageUrl(int $page): string
             <div class="alert alert-success">Location deleted successfully.</div>
         <?php elseif ($status === 'has_items'): ?>
             <div class="alert alert-warning">This location can't be deleted because it still has products assigned to it.</div>
+        <?php elseif ($status === 'bulk_deleted'): ?>
+            <div class="alert alert-success"><?= $bulkCount ?> location<?= $bulkCount === 1 ? '' : 's' ?> deleted.</div>
+        <?php elseif ($status === 'bulk_partial'): ?>
+            <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it still has' : 'they still have' ?> products assigned.</div>
         <?php elseif ($status === 'name_required'): ?>
             <div class="alert alert-warning">Location name is required.</div>
         <?php elseif ($status === 'error'): ?>
@@ -62,35 +68,45 @@ function locationPageUrl(int $page): string
             </select>
         </div>
 
-        <div class="table-card">
-            <table id="locationTable">
-                <thead>
-                    <tr>
-                        <th style="width:60px;">ID</th>
-                        <th>Name</th>
-                        <th style="width:150px;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($locations)): ?>
-                        <tr class="empty-row">
-                            <td colspan="3">No locations yet.</td>
+        <form method="POST" id="bulkLocationForm">
+            <div id="bulkBar" class="bulk-bar">
+                <span><strong id="bulkCount">0</strong> selected</span>
+                <button type="submit" formaction="index.php?module=locations&action=bulkDelete" class="btn btn-danger btn-sm"
+                        onclick="return confirm('Delete the selected locations? Any location still holding products will be skipped.');">Delete Selected</button>
+            </div>
+
+            <div class="table-card">
+                <table id="locationTable">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;"><input type="checkbox" id="selectAllLocations" class="row-check" onclick="toggleAllLocations(this)"></th>
+                            <th style="width:60px;">ID</th>
+                            <th>Name</th>
+                            <th style="width:150px;">Actions</th>
                         </tr>
-                    <?php else: ?>
-                        <?php foreach ($locations as $l): ?>
-                            <tr>
-                                <td class="cell-id"><?= (int) $l['location_id'] ?></td>
-                                <td><strong><?= htmlspecialchars($l['location_name']) ?></strong></td>
-                                <td class="actions">
-                                    <button type="button" class="btn btn-edit btn-sm" onclick="openEditLocationModal(<?= $l['location_id'] ?>)">Edit</button>
-                                    <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteLocationModal(<?= $l['location_id'] ?>)">Delete</button>
-                                </td>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($locations)): ?>
+                            <tr class="empty-row">
+                                <td colspan="4">No locations yet.</td>
                             </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+                        <?php else: ?>
+                            <?php foreach ($locations as $l): ?>
+                                <tr>
+                                    <td><input type="checkbox" name="selected_ids[]" value="<?= $l['location_id'] ?>" class="row-check location-check" onchange="updateBulkBarLocations()"></td>
+                                    <td class="cell-id"><?= (int) $l['location_id'] ?></td>
+                                    <td><strong><?= htmlspecialchars($l['location_name']) ?></strong></td>
+                                    <td class="actions">
+                                        <button type="button" class="btn btn-edit btn-sm" onclick="openEditLocationModal(<?= $l['location_id'] ?>)">Edit</button>
+                                        <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteLocationModal(<?= $l['location_id'] ?>)">Delete</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </form>
 
         <?php if ($pagination['totalCount'] > 0): ?>
             <?php
@@ -204,6 +220,25 @@ function locationPageUrl(int $page): string
                 if (row.classList.contains('empty-row')) return;
                 row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
             });
+        }
+
+        function toggleAllLocations(source) {
+            document.querySelectorAll('.location-check').forEach(cb => cb.checked = source.checked);
+            updateBulkBarLocations();
+        }
+
+        function updateBulkBarLocations() {
+            const checked = document.querySelectorAll('.location-check:checked').length;
+            const bar = document.getElementById('bulkBar');
+            document.getElementById('bulkCount').textContent = checked;
+            bar.classList.toggle('visible', checked > 0);
+
+            const all = document.querySelectorAll('.location-check').length;
+            const selectAll = document.getElementById('selectAllLocations');
+            if (selectAll) {
+                selectAll.checked = checked > 0 && checked === all;
+                selectAll.indeterminate = checked > 0 && checked < all;
+            }
         }
 
         document.addEventListener('keydown', function (e) {

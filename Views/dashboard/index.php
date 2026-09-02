@@ -16,8 +16,10 @@ $maxTypeCount = max($maxTypeCount, 1);
 
 $typeColors = [
     'return' => '#16A34A',
+    'stock_in' => '#16A34A',
     'item_request' => '#9333EA',
     'borrow' => '#D97706',
+    'stock_out' => '#4C5FD5',
 ];
 ?>
         <div class="page-header">

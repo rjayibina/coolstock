@@ -48,9 +48,10 @@ require __DIR__ . '/../partials/header.php';
 
                     <div style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.6;">
                         The first row must be a header with these column names (any order):<br>
-                        <code>category_name, brand_name, type_name, location_name, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year</code><br>
-                        <code>category_name</code> and <code>model</code> are required — <code>model</code> is each product's only identifying name, and <code>category_name</code> must match an existing category exactly. <code>brand_name</code>, <code>type_name</code>, and <code>location_name</code> are optional — leave them blank if not applicable, or they must match an existing brand / item type / location exactly (add new ones from the Brands / Item Types / Locations pages first).
+                        <code>category_name, brand_name, type_name, model, energy_rating, monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year</code><br>
+                        <code>category_name</code> and <code>model</code> are required — <code>model</code> is each product's only identifying name, and <code>category_name</code> must match an existing category exactly. <code>brand_name</code> and <code>type_name</code> are optional — leave them blank if not applicable, or they must match an existing brand / item type exactly (add new ones from the Brands / Item Types pages first).
                         <code>energy_rating</code>, <code>monthly_consumption</code>, <code>cooling_capacity</code>, <code>refrigerant</code>, <code>installation_type</code>, <code>power_input</code>, and <code>year</code> are free-form spec fields — required when <code>type_name</code> is <code>Asset</code>, otherwise leave them blank.
+                        Imported products always start with zero stock — use Stock In on each product afterwards to add quantity at a location.
                     </div>
 
                     <div class="form-actions">

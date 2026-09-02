@@ -5,7 +5,8 @@
  *          $pagination (array: page, perPage, totalCount, totalPages)
  */
 $status = $_GET['status'] ?? null;
-$currentHasProducts = $_GET['has_products'] ?? '';
+$bulkCount = (int) ($_GET['count'] ?? 0);
+$bulkSkipped = (int) ($_GET['skipped'] ?? 0);
 $currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Brands';
 $activeSection = 'inventory';
@@ -13,12 +14,11 @@ $activeSubNav = 'brands';
 $count = $pagination['totalCount'];
 require __DIR__ . '/../partials/header.php';
 
-// Builds a pagination link that keeps the current filters
+// Builds a pagination link that keeps the current sort
 function brandPageUrl(int $page): string
 {
-    global $currentHasProducts, $currentSort;
+    global $currentSort;
     return "index.php?module=brands&action=index"
-        . "&has_products=" . urlencode($currentHasProducts)
         . "&sort=" . urlencode($currentSort)
         . "&page=" . $page;
 }
@@ -33,33 +33,11 @@ function brandPageUrl(int $page): string
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <input type="text" id="brandSearch" placeholder="Search brands..." onkeyup="filterBrands()">
                 </div>
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('filterPanel').classList.toggle('open')">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                    Filter
-                </button>
                 <button type="button" class="btn btn-primary" onclick="openAddBrandModal()">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add Brand
                 </button>
             </div>
-        </div>
-
-        <div id="filterPanel" class="filter-panel <?= $currentHasProducts !== '' ? 'open' : '' ?>">
-            <form method="GET" action="index.php" class="filter-form">
-                <input type="hidden" name="module" value="brands">
-                <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
-                <div>
-                    <label>Products</label>
-                    <select name="has_products" onchange="this.form.submit()">
-                        <option value="">All Brands</option>
-                        <option value="has" <?= $currentHasProducts === 'has' ? 'selected' : '' ?>>Has Products</option>
-                        <option value="empty" <?= $currentHasProducts === 'empty' ? 'selected' : '' ?>>No Products</option>
-                    </select>
-                </div>
-                <?php if ($currentHasProducts !== ''): ?>
-                    <a href="index.php?module=brands&action=index" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Clear</a>
-                <?php endif; ?>
-            </form>
         </div>
 
         <?php if ($status === 'created'): ?>
@@ -70,6 +48,10 @@ function brandPageUrl(int $page): string
             <div class="alert alert-success">Brand deleted successfully.</div>
         <?php elseif ($status === 'has_items'): ?>
             <div class="alert alert-warning">This brand can't be deleted because it still has products assigned to it.</div>
+        <?php elseif ($status === 'bulk_deleted'): ?>
+            <div class="alert alert-success"><?= $bulkCount ?> brand<?= $bulkCount === 1 ? '' : 's' ?> deleted.</div>
+        <?php elseif ($status === 'bulk_partial'): ?>
+            <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it still has' : 'they still have' ?> products assigned.</div>
         <?php elseif ($status === 'name_required'): ?>
             <div class="alert alert-warning">Brand name is required.</div>
         <?php elseif ($status === 'error'): ?>
@@ -78,7 +60,7 @@ function brandPageUrl(int $page): string
 
         <div class="sort-bar">
             <label for="sortSelect">Sort by</label>
-            <select id="sortSelect" onchange="location.href = 'index.php?module=brands&action=index&has_products=<?= urlencode($currentHasProducts) ?>&sort=' + this.value">
+            <select id="sortSelect" onchange="location.href = 'index.php?module=brands&action=index&sort=' + this.value">
                 <option value="newest" <?= $currentSort === 'newest' ? 'selected' : '' ?>>Recently added</option>
                 <option value="oldest" <?= $currentSort === 'oldest' ? 'selected' : '' ?>>Oldest first</option>
                 <option value="name_asc" <?= $currentSort === 'name_asc' ? 'selected' : '' ?>>Name: A–Z</option>
@@ -88,35 +70,45 @@ function brandPageUrl(int $page): string
             </select>
         </div>
 
-        <div class="table-card">
-            <table id="brandTable">
-                <thead>
-                    <tr>
-                        <th style="width:60px;">ID</th>
-                        <th>Name</th>
-                        <th style="width:150px;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($brands)): ?>
-                        <tr class="empty-row">
-                            <td colspan="3">No brands match these filters.</td>
+        <form method="POST" id="bulkBrandForm">
+            <div id="bulkBar" class="bulk-bar">
+                <span><strong id="bulkCount">0</strong> selected</span>
+                <button type="submit" formaction="index.php?module=brands&action=bulkDelete" class="btn btn-danger btn-sm"
+                        onclick="return confirm('Delete the selected brands? Any brand still holding products will be skipped.');">Delete Selected</button>
+            </div>
+
+            <div class="table-card">
+                <table id="brandTable">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;"><input type="checkbox" id="selectAllBrands" class="row-check" onclick="toggleAllBrands(this)"></th>
+                            <th style="width:60px;">ID</th>
+                            <th>Brand</th>
+                            <th style="width:150px;">Actions</th>
                         </tr>
-                    <?php else: ?>
-                        <?php foreach ($brands as $b): ?>
-                            <tr>
-                                <td class="cell-id"><?= (int) $b['brand_id'] ?></td>
-                                <td><strong><?= htmlspecialchars($b['brand_name']) ?></strong></td>
-                                <td class="actions">
-                                    <button type="button" class="btn btn-edit btn-sm" onclick="openEditBrandModal(<?= $b['brand_id'] ?>)">Edit</button>
-                                    <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteBrandModal(<?= $b['brand_id'] ?>)">Delete</button>
-                                </td>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($brands)): ?>
+                            <tr class="empty-row">
+                                <td colspan="4">No brands match these filters.</td>
                             </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+                        <?php else: ?>
+                            <?php foreach ($brands as $b): ?>
+                                <tr>
+                                    <td><input type="checkbox" name="selected_ids[]" value="<?= $b['brand_id'] ?>" class="row-check brand-check" onchange="updateBulkBarBrands()"></td>
+                                    <td class="cell-id"><?= (int) $b['brand_id'] ?></td>
+                                    <td><strong><?= htmlspecialchars($b['brand_name']) ?></strong></td>
+                                    <td class="actions">
+                                        <button type="button" class="btn btn-edit btn-sm" onclick="openEditBrandModal(<?= $b['brand_id'] ?>)">Edit</button>
+                                        <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteBrandModal(<?= $b['brand_id'] ?>)">Delete</button>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </form>
 
         <?php if ($pagination['totalCount'] > 0): ?>
             <?php
@@ -230,6 +222,25 @@ function brandPageUrl(int $page): string
                 if (row.classList.contains('empty-row')) return;
                 row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
             });
+        }
+
+        function toggleAllBrands(source) {
+            document.querySelectorAll('.brand-check').forEach(cb => cb.checked = source.checked);
+            updateBulkBarBrands();
+        }
+
+        function updateBulkBarBrands() {
+            const checked = document.querySelectorAll('.brand-check:checked').length;
+            const bar = document.getElementById('bulkBar');
+            document.getElementById('bulkCount').textContent = checked;
+            bar.classList.toggle('visible', checked > 0);
+
+            const all = document.querySelectorAll('.brand-check').length;
+            const selectAll = document.getElementById('selectAllBrands');
+            if (selectAll) {
+                selectAll.checked = checked > 0 && checked === all;
+                selectAll.indeterminate = checked > 0 && checked < all;
+            }
         }
 
         document.addEventListener('keydown', function (e) {

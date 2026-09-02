@@ -103,6 +103,12 @@ require __DIR__ . '/../partials/header.php';
             <div class="alert alert-success">Product deleted successfully.</div>
         <?php elseif ($status === 'bulk_updated'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> moved to the new category.</div>
+        <?php elseif ($status === 'stock_in'): ?>
+            <div class="alert alert-success">Stock added successfully.</div>
+        <?php elseif ($status === 'stock_out'): ?>
+            <div class="alert alert-success">Stock removed successfully.</div>
+        <?php elseif ($status === 'stock_out_insufficient'): ?>
+            <div class="alert alert-warning">Not enough stock at that location — only <?= (int) ($_GET['available'] ?? 0) ?> available.</div>
         <?php endif; ?>
 
         <div class="sort-bar">
@@ -137,8 +143,8 @@ require __DIR__ . '/../partials/header.php';
                             <th>Category</th>
                             <th>Brand</th>
                             <th>Type</th>
-                            <th>Location</th>
-                            <th style="width:120px;">Actions</th>
+                            <th>Quantity</th>
+                            <th style="width:170px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -155,8 +161,10 @@ require __DIR__ . '/../partials/header.php';
                                     <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['brand_name'] ?? '—') ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['type_name'] ?? '—') ?></td>
-                                    <td class="cell-muted"><?= htmlspecialchars($it['location_name'] ?? '—') ?></td>
+                                    <td class="cell-id"><?= (int) $it['total_quantity'] ?></td>
                                     <td class="actions">
+                                        <button type="button" class="btn btn-sm" style="background:var(--success-bg);color:var(--success);" title="Stock in" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_in')">+</button>
+                                        <button type="button" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);" title="Stock out" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_out')">&minus;</button>
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditProductModal(<?= $it['item_id'] ?>)">Edit</button>
                                     </td>
                                 </tr>
@@ -187,33 +195,33 @@ require __DIR__ . '/../partials/header.php';
         <div id="viewProductModal" class="modal-overlay" onclick="if(event.target===this) this.classList.remove('open')">
             <div class="modal-dialog">
                 <div class="modal-header">
-                    <h3 id="vpm-name">Product</h3>
+                    <h3 id="vpm-name" style="font-size:26px;">Product</h3>
                     <button type="button" class="modal-close" onclick="document.getElementById('viewProductModal').classList.remove('open')">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div style="margin-bottom:16px;">
-                        <div style="font-size:13px;color:var(--text-muted);">Item ID: <strong id="vpm-itemid" style="color:var(--text-dark);"></strong> &middot; Category: <strong id="vpm-category" style="color:var(--text-dark);"></strong></div>
+                    <div class="detail-row"><div class="detail-label">Item ID</div><div class="detail-value" id="vpm-itemid"></div></div>
+                    <div class="detail-row"><div class="detail-label">Category</div><div class="detail-value" id="vpm-category"></div></div>
+                    <div class="detail-row"><div class="detail-label">Brand</div><div class="detail-value" id="vpm-brand"></div></div>
+                    <div class="detail-row"><div class="detail-label">Item Type</div><div class="detail-value" id="vpm-itemtype"></div></div>
+                    <div class="detail-row">
+                        <div class="detail-label">Total Products</div>
+                        <div class="detail-value">
+                            <div id="vpm-totalqty"></div>
+                            <div id="vpm-stock-breakdown" style="font-weight:400;font-size:13px;color:var(--text-muted);margin-top:4px;"></div>
+                        </div>
+                    </div>
+                    <div id="vpm-specs-body">
+                        <div class="detail-row"><div class="detail-label">Energy Rating</div><div class="detail-value" id="vpm-energyrating"></div></div>
+                        <div class="detail-row"><div class="detail-label">Monthly Consumption</div><div class="detail-value" id="vpm-consumption"></div></div>
+                        <div class="detail-row"><div class="detail-label">Cooling Capacity</div><div class="detail-value" id="vpm-cooling"></div></div>
+                        <div class="detail-row"><div class="detail-label">Refrigerant</div><div class="detail-value" id="vpm-refrigerant"></div></div>
+                        <div class="detail-row"><div class="detail-label">Installation Type</div><div class="detail-value" id="vpm-installtype"></div></div>
+                        <div class="detail-row"><div class="detail-label">Power Input</div><div class="detail-value" id="vpm-powerinput"></div></div>
+                        <div class="detail-row"><div class="detail-label">Year</div><div class="detail-value" id="vpm-year"></div></div>
                     </div>
 
-                    <table style="width:100%;font-size:13.5px;border-collapse:collapse;">
-                        <tbody>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Brand</td><td id="vpm-brand" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Item Type</td><td id="vpm-itemtype" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Location</td><td id="vpm-location" style="padding:6px 0;font-weight:600;"></td></tr>
-                        </tbody>
-                        <tbody id="vpm-specs-body">
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Energy Rating</td><td id="vpm-energyrating" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Monthly Consumption</td><td id="vpm-consumption" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Cooling Capacity</td><td id="vpm-cooling" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Refrigerant</td><td id="vpm-refrigerant" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Installation Type</td><td id="vpm-installtype" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Power Input</td><td id="vpm-powerinput" style="padding:6px 0;font-weight:600;"></td></tr>
-                            <tr><td style="padding:6px 0;color:var(--text-muted);">Year</td><td id="vpm-year" style="padding:6px 0;font-weight:600;"></td></tr>
-                        </tbody>
-                    </table>
-
                     <div class="form-actions" style="margin-top:18px;">
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('viewProductModal').classList.remove('open')">Close</button>
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('viewProductModal').classList.remove('open')">Close</button>
                     </div>
                 </div>
             </div>
@@ -251,14 +259,6 @@ require __DIR__ . '/../partials/header.php';
                             <option value="">No item type</option>
                             <?php foreach ($itemTypes as $t): ?>
                                 <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>"><?= htmlspecialchars($t['type_name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-
-                        <label for="ap_location_id">Location <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ap_location_id" name="location_id">
-                            <option value="">No location</option>
-                            <?php foreach ($locations as $loc): ?>
-                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
 
@@ -333,14 +333,6 @@ require __DIR__ . '/../partials/header.php';
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="ep_location_id">Location <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ep_location_id" name="location_id">
-                            <option value="">No location</option>
-                            <?php foreach ($locations as $loc): ?>
-                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-
                         <div id="ep_specs_section">
                             <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
 
@@ -375,6 +367,47 @@ require __DIR__ . '/../partials/header.php';
             </div>
         </div>
 
+        <div id="stockModal" class="modal-overlay" onclick="if(event.target===this) closeModal('stockModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3 id="sm_title">Stock In</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('stockModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" id="stockForm" action="index.php?module=transactions&action=create">
+                        <input type="hidden" name="item_id" id="sm_item_id" value="">
+                        <input type="hidden" name="transaction_type" id="sm_transaction_type" value="stock_in">
+                        <input type="hidden" name="redirect_to" value="products">
+
+                        <label for="sm_quantity">Quantity</label>
+                        <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity" required>
+
+                        <label for="sm_location_id">Location</label>
+                        <select id="sm_location_id" name="location_id" required>
+                            <option value="" disabled selected>Select a location</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="sm_transaction_date">Stock Date</label>
+                        <input type="date" id="sm_transaction_date" name="transaction_date" required>
+
+                        <label for="sm_technician_name" id="sm_technician_label">Received By</label>
+                        <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
+
+                        <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success" id="sm_submit">Add Stock</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('stockModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         <div id="helpModal" class="modal-overlay" onclick="if(event.target===this) this.classList.remove('open')">
             <div class="modal-dialog">
                 <div class="modal-header">
@@ -388,15 +421,17 @@ require __DIR__ . '/../partials/header.php';
                     <ul>
                         <li>Add products manually, or import many at once via CSV or XLSX.</li>
                         <li>Every product is identified by its <strong>Model</strong> — there's no separate product name.</li>
-                        <li>Record Brand, Item Type, Location, and AC technical specs on each product.</li>
+                        <li>Record Brand, Item Type, and AC technical specs on each product.</li>
                         <li>When Item Type is set to <strong>Asset</strong>, the Technical Specifications section appears and every field in it becomes required. It's hidden (and optional) for <strong>Consumable</strong> or when no item type is set.</li>
+                        <li>Use the <strong>+</strong> / <strong>−</strong> buttons on a row to Stock In or Stock Out at a specific location. A product's quantity is the sum of its stock across every location it's been stocked at — open a product to see the per-location breakdown.</li>
                         <li>Select multiple products with the checkboxes to bulk-move them to another category.</li>
                     </ul>
 
                     <h4>Getting started</h4>
                     <ol>
                         <li>Click <strong>Add Product</strong> for a single new product, or use the arrow beside it to <strong>Import</strong> a spreadsheet of many products at once.</li>
-                        <li>Fill in the model and category — brand, item type, and location are all optional and can be added later.</li>
+                        <li>Fill in the model and category — brand, item type, and specs are all optional and can be added later. New products start with zero stock everywhere.</li>
+                        <li>Use the <strong>+</strong> button on a row to Stock In - add a quantity at a location, with a date and who received it.</li>
                         <li>Use the search bar and <strong>Filter</strong> panel to quickly find products by model, category, or location.</li>
                     </ol>
                 </div>
@@ -405,6 +440,12 @@ require __DIR__ . '/../partials/header.php';
 
         <script>
         const productsData = <?= json_encode(array_column($items, null, 'item_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+
+        function htmlEscape(str) {
+            const div = document.createElement('div');
+            div.textContent = str ?? '';
+            return div.innerHTML;
+        }
 
         function handleProductRowClick(event, id) {
             // Ignore clicks on checkboxes, links, or buttons inside the row -
@@ -422,7 +463,18 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vpm-category').textContent = p.category_name || 'Uncategorized';
             document.getElementById('vpm-brand').textContent = p.brand_name || '—';
             document.getElementById('vpm-itemtype').textContent = p.type_name || '—';
-            document.getElementById('vpm-location').textContent = p.location_name || '—';
+
+            document.getElementById('vpm-totalqty').textContent = p.total_quantity;
+            const breakdownEl = document.getElementById('vpm-stock-breakdown');
+            const breakdown = p.stock_breakdown || [];
+            if (breakdown.length === 0) {
+                breakdownEl.innerHTML = 'No stock recorded yet.';
+            } else {
+                breakdownEl.innerHTML = breakdown.map(row =>
+                    htmlEscape(row.location_name) + ': ' + row.quantity
+                ).join('<br>');
+            }
+
             document.getElementById('vpm-energyrating').textContent = p.energy_rating || '—';
             document.getElementById('vpm-consumption').textContent = p.monthly_consumption ? (p.monthly_consumption + ' kWh/mo') : '—';
             document.getElementById('vpm-cooling').textContent = p.cooling_capacity || '—';
@@ -483,7 +535,6 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('ep_model').value = p.model || '';
             document.getElementById('ep_brand_id').value = p.brand_id || '';
             document.getElementById('ep_item_type_id').value = p.item_type_id || '';
-            document.getElementById('ep_location_id').value = p.location_id || '';
             document.getElementById('ep_energy_rating').value = p.energy_rating || '';
             document.getElementById('ep_monthly_consumption').value = p.monthly_consumption || '';
             document.getElementById('ep_cooling_capacity').value = p.cooling_capacity || '';
@@ -495,6 +546,28 @@ require __DIR__ . '/../partials/header.php';
 
             updateSpecsVisibility('ep');
             document.getElementById('editProductModal').classList.add('open');
+        }
+
+        // Opens the Stock modal already set to 'stock_in' or 'stock_out' -
+        // there's no in-modal toggle, the +/- button you clicked picks the direction.
+        function openStockModal(id, mode) {
+            const p = productsData[id];
+            if (!p) return;
+
+            document.getElementById('stockForm').reset();
+            document.getElementById('sm_item_id').value = id;
+            document.getElementById('sm_transaction_type').value = mode;
+            document.getElementById('sm_transaction_date').value = new Date().toISOString().slice(0, 10);
+
+            const isStockIn = mode === 'stock_in';
+            document.getElementById('sm_title').textContent = (isStockIn ? 'Stock In' : 'Stock Out') + ': ' + p.model;
+            document.getElementById('sm_technician_label').textContent = isStockIn ? 'Received By' : 'Released By';
+
+            const submitBtn = document.getElementById('sm_submit');
+            submitBtn.textContent = isStockIn ? 'Add Stock' : 'Remove Stock';
+            submitBtn.className = isStockIn ? 'btn btn-success' : 'btn btn-danger-solid';
+
+            document.getElementById('stockModal').classList.add('open');
         }
 
         function toggleAllProducts(source) {
@@ -509,7 +582,9 @@ require __DIR__ . '/../partials/header.php';
             bar.classList.toggle('visible', checked > 0);
 
             const all = document.querySelectorAll('.product-check').length;
-            document.getElementById('selectAll').checked = checked > 0 && checked === all;
+            const selectAll = document.getElementById('selectAll');
+            selectAll.checked = checked > 0 && checked === all;
+            selectAll.indeterminate = checked > 0 && checked < all;
         }
 
         // Close dropdown/modal on outside click or Escape
@@ -526,6 +601,7 @@ require __DIR__ . '/../partials/header.php';
                 document.getElementById('viewProductModal')?.classList.remove('open');
                 document.getElementById('addProductModal')?.classList.remove('open');
                 document.getElementById('editProductModal')?.classList.remove('open');
+                document.getElementById('stockModal')?.classList.remove('open');
             }
         });
         </script>

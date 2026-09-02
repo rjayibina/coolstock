@@ -7,7 +7,6 @@
 $status = $_GET['status'] ?? null;
 $bulkCount = (int) ($_GET['count'] ?? 0);
 $bulkSkipped = (int) ($_GET['skipped'] ?? 0);
-$currentHasProducts = $_GET['has_products'] ?? '';
 $currentSort = $_GET['sort'] ?? 'newest';
 $pageTitle = 'Categories';
 $activeSection = 'inventory';
@@ -15,12 +14,11 @@ $activeSubNav = 'categories';
 $count = $pagination['totalCount'];
 require __DIR__ . '/../partials/header.php';
 
-// Builds a pagination link that keeps the current filters
+// Builds a pagination link that keeps the current sort
 function categoryPageUrl(int $page): string
 {
-    global $currentHasProducts, $currentSort;
+    global $currentSort;
     return "index.php?module=categories&action=index"
-        . "&has_products=" . urlencode($currentHasProducts)
         . "&sort=" . urlencode($currentSort)
         . "&page=" . $page;
 }
@@ -35,33 +33,11 @@ function categoryPageUrl(int $page): string
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <input type="text" id="categorySearch" placeholder="Search categories..." onkeyup="filterCategories()">
                 </div>
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('filterPanel').classList.toggle('open')">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                    Filter
-                </button>
                 <button type="button" class="btn btn-primary" onclick="openAddCategoryModal()">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add Category
                 </button>
             </div>
-        </div>
-
-        <div id="filterPanel" class="filter-panel <?= $currentHasProducts !== '' ? 'open' : '' ?>">
-            <form method="GET" action="index.php" class="filter-form">
-                <input type="hidden" name="module" value="categories">
-                <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
-                <div>
-                    <label>Products</label>
-                    <select name="has_products" onchange="this.form.submit()">
-                        <option value="">All Categories</option>
-                        <option value="has" <?= $currentHasProducts === 'has' ? 'selected' : '' ?>>Has Products</option>
-                        <option value="empty" <?= $currentHasProducts === 'empty' ? 'selected' : '' ?>>No Products</option>
-                    </select>
-                </div>
-                <?php if ($currentHasProducts !== ''): ?>
-                    <a href="index.php?module=categories&action=index" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Clear</a>
-                <?php endif; ?>
-            </form>
         </div>
 
         <?php if ($status === 'created'): ?>
@@ -80,7 +56,7 @@ function categoryPageUrl(int $page): string
 
         <div class="sort-bar">
             <label for="sortSelect">Sort by</label>
-            <select id="sortSelect" onchange="location.href = 'index.php?module=categories&action=index&has_products=<?= urlencode($currentHasProducts) ?>&sort=' + this.value">
+            <select id="sortSelect" onchange="location.href = 'index.php?module=categories&action=index&sort=' + this.value">
                 <option value="newest" <?= $currentSort === 'newest' ? 'selected' : '' ?>>Recently added</option>
                 <option value="oldest" <?= $currentSort === 'oldest' ? 'selected' : '' ?>>Oldest first</option>
                 <option value="name_asc" <?= $currentSort === 'name_asc' ? 'selected' : '' ?>>Name: A–Z</option>
@@ -103,7 +79,7 @@ function categoryPageUrl(int $page): string
                         <tr>
                             <th style="width:36px;"><input type="checkbox" id="selectAllCategories" class="row-check" onclick="toggleAllCategories(this)"></th>
                             <th style="width:60px;">ID</th>
-                            <th>Name</th>
+                            <th>Category</th>
                             <th style="width:190px;">Actions</th>
                         </tr>
                     </thead>
@@ -258,7 +234,10 @@ function categoryPageUrl(int $page): string
 
             const all = document.querySelectorAll('.category-check').length;
             const selectAll = document.getElementById('selectAllCategories');
-            if (selectAll) selectAll.checked = checked > 0 && checked === all;
+            if (selectAll) {
+                selectAll.checked = checked > 0 && checked === all;
+                selectAll.indeterminate = checked > 0 && checked < all;
+            }
         }
 
         document.addEventListener('keydown', function (e) {

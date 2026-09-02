@@ -18,19 +18,18 @@ class CategoryController
         $this->category = new Category();
     }
 
-    /** List all categories, each with its product count, filtered/sorted/paginated */
+    /** List all categories, each with its product count, sorted and paginated */
     public function index(): void
     {
-        $productFilter = $_GET['has_products'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->category->countFiltered($productFilter);
+        $totalCount = $this->category->count();
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $categories = $this->category->readAllWithCounts($productFilter, $sort, self::PER_PAGE, $offset);
+        $categories = $this->category->readAllWithCounts($sort, self::PER_PAGE, $offset);
 
         $pagination = [
             'page' => $page,

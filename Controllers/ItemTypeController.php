@@ -16,19 +16,18 @@ class ItemTypeController
         $this->itemType = new ItemType();
     }
 
-    /** List all item types, filtered by product count, sorted, and paginated */
+    /** List all item types, sorted and paginated */
     public function index(): void
     {
-        $productFilter = $_GET['has_products'] ?? null;
         $sort = $_GET['sort'] ?? 'newest';
 
         $page = max(1, (int) ($_GET['page'] ?? 1));
-        $totalCount = $this->itemType->countFiltered($productFilter);
+        $totalCount = $this->itemType->count();
         $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
         $page = min($page, $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        $itemTypes = $this->itemType->readAllWithCounts($productFilter, $sort, self::PER_PAGE, $offset);
+        $itemTypes = $this->itemType->readAllWithCounts($sort, self::PER_PAGE, $offset);
 
         $pagination = [
             'page' => $page,
@@ -102,6 +101,22 @@ class ItemTypeController
         }
 
         header("Location: index.php?module=itemtypes&action=index&status=deleted");
+        exit;
+    }
+
+    /** Bulk delete a set of item types - skips any still holding products */
+    public function bulkDelete(): void
+    {
+        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
+
+        if (!empty($ids)) {
+            $result = $this->itemType->bulkDelete($ids);
+            $status = !empty($result['skipped']) ? 'bulk_partial' : 'bulk_deleted';
+            header("Location: index.php?module=itemtypes&action=index&status=$status&count=" . count($result['deleted']) . "&skipped=" . count($result['skipped']));
+            exit;
+        }
+
+        header("Location: index.php?module=itemtypes&action=index");
         exit;
     }
 }

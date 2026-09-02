@@ -103,4 +103,20 @@ class LocationController
         header("Location: index.php?module=locations&action=index&status=deleted");
         exit;
     }
+
+    /** Bulk delete a set of locations - skips any still holding products */
+    public function bulkDelete(): void
+    {
+        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
+
+        if (!empty($ids)) {
+            $result = $this->location->bulkDelete($ids);
+            $status = !empty($result['skipped']) ? 'bulk_partial' : 'bulk_deleted';
+            header("Location: index.php?module=locations&action=index&status=$status&count=" . count($result['deleted']) . "&skipped=" . count($result['skipped']));
+            exit;
+        }
+
+        header("Location: index.php?module=locations&action=index");
+        exit;
+    }
 }

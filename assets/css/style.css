@@ -525,6 +525,8 @@ form textarea { resize: vertical; min-height: 90px; }
 .badge-return { background: var(--success-bg); color: var(--success); }
 .badge-item_request { background: #F3E8FD; color: #9333EA; }
 .badge-borrow { background: var(--warning-bg); color: var(--warning); }
+.badge-stock_in { background: var(--success-bg); color: var(--success); }
+.badge-stock_out { background: #EEF0FE; color: var(--accent); }
 
 /* ---------- Dashboard bar charts ---------- */
 .chart-grid {
@@ -832,6 +834,29 @@ form textarea { resize: vertical; min-height: 90px; }
 
 /* ---------- Delete confirmation modal ---------- */
 .modal-dialog-sm { max-width: 400px; }
+
+/* ---------- Record detail list (e.g. View Product modal) ---------- */
+.detail-row {
+    display: flex;
+    gap: 16px;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.detail-row:first-child { padding-top: 0; }
+
+.detail-label {
+    flex: 0 0 170px;
+    color: var(--text-muted);
+    font-size: 15px;
+}
+
+.detail-value {
+    flex: 1;
+    color: var(--text-dark);
+    font-weight: 700;
+    font-size: 15px;
+}
 
 /* ---------- Pagination ---------- */
 .pagination-bar {

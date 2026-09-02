@@ -6,14 +6,15 @@ require_once __DIR__ . '/../Config/Database.php';
  * Maps to the inventory_items table: the ERD's tblItem fields
  * (item_id(PK), category_id(FK), brand_id(FK), item_type_id(FK), model,
  * energy_rating, monthly_consumption, cooling_capacity, refrigerant,
- * installation_type, power_input, year) plus location_id(FK), which was
- * dropped in the strict-ERD-compliance rework and then re-added (see
- * migration_readd_location_to_products.sql) - one location per product.
+ * installation_type, power_input, year).
  *
- * item_name, description, unit_of_measure, and image_path stay dropped.
- * There is no name field left, so `model` is the de-facto display name
- * everywhere - it's required, unlike the rest of the spec fields which
- * stay optional.
+ * No location_id and no stock-quantity column of its own - an item's
+ * location(s) and quantity now come from item_stock (see ItemStock.php),
+ * one row per (item, location) pair, kept in sync by Stock In/Out
+ * transactions. item_name, description, unit_of_measure, and image_path
+ * stay dropped from the strict-ERD-compliance rework. There is no name
+ * field left, so `model` is the de-facto display name everywhere - it's
+ * required, unlike the rest of the spec fields which stay optional.
  */
 class InventoryItem
 {
@@ -24,7 +25,6 @@ class InventoryItem
     public ?int $category_id = null;
     public ?int $brand_id = null;
     public ?int $item_type_id = null;
-    public ?int $location_id = null;
     public ?string $model = null;
     public ?string $energy_rating = null;
     public ?float $monthly_consumption = null;
@@ -43,10 +43,10 @@ class InventoryItem
     public function create(): bool
     {
         $query = "INSERT INTO {$this->table}
-                    (category_id, brand_id, item_type_id, location_id, model, energy_rating,
+                    (category_id, brand_id, item_type_id, model, energy_rating,
                      monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
                   VALUES
-                    (:category_id, :brand_id, :item_type_id, :location_id, :model, :energy_rating,
+                    (:category_id, :brand_id, :item_type_id, :model, :energy_rating,
                      :monthly_consumption, :cooling_capacity, :refrigerant, :installation_type, :power_input, :year)";
 
         $stmt = $this->conn->prepare($query);
@@ -64,11 +64,6 @@ class InventoryItem
             $stmt->bindValue(':item_type_id', null, PDO::PARAM_NULL);
         } else {
             $stmt->bindValue(':item_type_id', $this->item_type_id, PDO::PARAM_INT);
-        }
-        if ($this->location_id === null) {
-            $stmt->bindValue(':location_id', null, PDO::PARAM_NULL);
-        } else {
-            $stmt->bindValue(':location_id', $this->location_id, PDO::PARAM_INT);
         }
         $stmt->bindParam(':model', $this->model);
         $stmt->bindParam(':energy_rating', $this->energy_rating);
@@ -96,8 +91,11 @@ class InventoryItem
         return (int) $this->conn->lastInsertId();
     }
 
-    /** READ - all items, joined with category/brand/item-type/location names, most recent first.
-     *  $categoryId / $locationId optionally filter the results.
+    /** READ - all items, joined with category/brand/item-type names and each
+     *  item's total quantity across all locations (0 if never stocked).
+     *  $categoryId optionally filters by category; $locationId filters to
+     *  items with stock recorded at that location ('none' = items with no
+     *  stock recorded anywhere).
      *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
     public const SORT_OPTIONS = [
         'name_asc' => 'i.model ASC',
@@ -113,12 +111,12 @@ class InventoryItem
         [$where, $params] = $this->buildFilterClause($categoryId, $locationId);
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
 
-        $query = "SELECT i.*, c.category_name, b.brand_name, t.type_name, l.location_name
+        $query = "SELECT i.*, c.category_name, b.brand_name, t.type_name,
+                          COALESCE((SELECT SUM(s.quantity) FROM item_stock s WHERE s.item_id = i.item_id), 0) AS total_quantity
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   LEFT JOIN brands b ON i.brand_id = b.brand_id
                   LEFT JOIN item_types t ON i.item_type_id = t.item_type_id
-                  LEFT JOIN locations l ON i.location_id = l.location_id
                   WHERE {$where}
                   ORDER BY {$orderBy}";
 
@@ -164,9 +162,9 @@ class InventoryItem
             $params[':category_id'] = (int) $categoryId;
         }
         if ($locationId === 'none') {
-            $where .= " AND i.location_id IS NULL";
+            $where .= " AND NOT EXISTS (SELECT 1 FROM item_stock s WHERE s.item_id = i.item_id)";
         } elseif ($locationId !== null && $locationId !== '') {
-            $where .= " AND i.location_id = :location_id";
+            $where .= " AND EXISTS (SELECT 1 FROM item_stock s WHERE s.item_id = i.item_id AND s.location_id = :location_id)";
             $params[':location_id'] = (int) $locationId;
         }
 
@@ -183,15 +181,16 @@ class InventoryItem
         return $stmt->fetchAll();
     }
 
-    /** READ - single item by id, joined with category/brand/item-type/location names */
+    /** READ - single item by id, joined with category/brand/item-type names
+     *  and its total quantity across all locations */
     public function readOne(int $id): array|false
     {
-        $query = "SELECT i.*, c.category_name, b.brand_name, t.type_name, l.location_name
+        $query = "SELECT i.*, c.category_name, b.brand_name, t.type_name,
+                          COALESCE((SELECT SUM(s.quantity) FROM item_stock s WHERE s.item_id = i.item_id), 0) AS total_quantity
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
                   LEFT JOIN brands b ON i.brand_id = b.brand_id
                   LEFT JOIN item_types t ON i.item_type_id = t.item_type_id
-                  LEFT JOIN locations l ON i.location_id = l.location_id
                   WHERE i.item_id = :id LIMIT 1";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
@@ -206,7 +205,6 @@ class InventoryItem
                     category_id = :category_id,
                     brand_id = :brand_id,
                     item_type_id = :item_type_id,
-                    location_id = :location_id,
                     model = :model,
                     energy_rating = :energy_rating,
                     monthly_consumption = :monthly_consumption,
@@ -233,11 +231,6 @@ class InventoryItem
         } else {
             $stmt->bindValue(':item_type_id', $this->item_type_id, PDO::PARAM_INT);
         }
-        if ($this->location_id === null) {
-            $stmt->bindValue(':location_id', null, PDO::PARAM_NULL);
-        } else {
-            $stmt->bindValue(':location_id', $this->location_id, PDO::PARAM_INT);
-        }
         $stmt->bindParam(':model', $this->model);
         $stmt->bindParam(':energy_rating', $this->energy_rating);
         if ($this->monthly_consumption === null) {
@@ -262,7 +255,9 @@ class InventoryItem
     /** DELETE - remove an item by id. Its past transactions are kept (not
      *  deleted) for the Logs/audit trail - the FK sets their item_id to
      *  NULL instead of restricting or cascading. See
-     *  migration_transactions_survive_product_delete.sql. */
+     *  migration_transactions_survive_product_delete.sql. Its item_stock
+     *  rows, however, are deleted along with it (ON DELETE CASCADE) -
+     *  those are a live quantity, not an audit trail. */
     public function delete(int $id): bool
     {
         $query = "DELETE FROM {$this->table} WHERE item_id = :id";

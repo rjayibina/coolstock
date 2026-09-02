@@ -3,12 +3,13 @@ require_once __DIR__ . '/../Config/Database.php';
 
 /**
  * Transaction.php (Model)
- * Every row is a plain activity-log entry - Item Request, Borrow, or
- * Return - matching the Item Request and Return Monitoring Module from
- * the thesis scope. Stock In/Out and all inventory quantity math were
- * removed in the strict-ERD-compliance rework (see
- * migration_remove_stock_tracking.sql) - a transaction no longer adjusts
- * any product's stock level, it just records that a movement happened.
+ * Every row is an activity-log entry: Item Request, Borrow, Return, or
+ * (as of migration_add_stock_by_location.sql) Stock In / Stock Out. The
+ * first three never touch stock. Stock In/Out do - they're the only
+ * types with a location_id, and creating one is paired with an
+ * ItemStock::adjust() call by the controller to keep that location's
+ * quantity in sync (this model itself has no stock side effects; see
+ * TransactionController::create()).
  *
  * Transactions are treated as an immutable ledger: there is no "update",
  * only create (Item Request additionally supports approve/decline).
@@ -18,10 +19,13 @@ class Transaction
     private PDO $conn;
     private string $table = "transactions";
 
-    public const TYPES = ['item_request', 'borrow', 'return'];
+    public const TYPES = ['item_request', 'borrow', 'return', 'stock_in', 'stock_out'];
 
     public ?int $transaction_id = null;
     public ?int $item_id = null;
+    // Which location a Stock In/Out happened at. Always null for Item
+    // Request/Borrow/Return.
+    public ?int $location_id = null;
     public ?string $transaction_type = null;
     public ?int $quantity = null;
     // The date the movement actually happened (defaults to today if
@@ -29,17 +33,17 @@ class Transaction
     // timestamp of when the row was logged. See migration_transaction_date.sql.
     public ?string $transaction_date = null;
     // TODO: once the User Access and Roles Module exists, replace this free-text
-    // field with a technician_id FK into a users/technicians table.
+    // field with a technician_id FK into a users/technicians table. Doubles as
+    // "Received By" (Stock In) / "Released By" (Stock Out) in the UI, same column.
     public ?string $technician_name = null;
     public ?string $notes = null;
-    // 'manual' = logged from the Transactions page. 'auto' only ever existed
-    // for system-generated Stock In/Out rows, which are gone along with
-    // stock tracking itself - new rows are always 'manual'. Historical
-    // 'auto' rows from before this rework may still exist in the data.
+    // 'manual' = logged from the Transactions page or a product's Stock In/Out
+    // form. 'auto' is historical only - no code path sets it anymore.
     public string $source = 'manual';
     // 'pending' = an Item Request that hasn't been approved yet. 'completed'
     // = everything else, and approved requests. 'declined' = a refused
-    // request. None of these move any product's stock level anymore.
+    // request. Only Stock In/Out ever move a product's stock level (via
+    // ItemStock::adjust() in the controller) - the other three never do.
     public string $status = 'completed';
 
     public function __construct()
@@ -53,6 +57,8 @@ class Transaction
             'item_request' => 'Item Request',
             'borrow' => 'Borrow',
             'return' => 'Return',
+            'stock_in' => 'Stock In',
+            'stock_out' => 'Stock Out',
             default => ucfirst($type),
         };
     }
@@ -64,12 +70,17 @@ class Transaction
         $this->transaction_date = $this->transaction_date ?: date('Y-m-d');
 
         $query = "INSERT INTO {$this->table}
-                    (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status)
+                    (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status)
                   VALUES
-                    (:item_id, :transaction_type, :quantity, :transaction_date, :technician_name, :notes, :source, :status)";
+                    (:item_id, :location_id, :transaction_type, :quantity, :transaction_date, :technician_name, :notes, :source, :status)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
+        if ($this->location_id === null) {
+            $stmt->bindValue(':location_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':location_id', $this->location_id, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':transaction_type', $this->transaction_type);
         $stmt->bindParam(':quantity', $this->quantity, PDO::PARAM_INT);
         $stmt->bindParam(':transaction_date', $this->transaction_date);
@@ -111,7 +122,8 @@ class Transaction
     ];
 
     /** READ - all transactions, joined with the item's model (the item's
-     *  de-facto display name - see InventoryItem.php).
+     *  de-facto display name - see InventoryItem.php) and, for Stock In/Out
+     *  rows, the location the movement happened at.
      *  $itemId / $type / $search / $dateFrom / $dateTo optionally filter the results.
      *  $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first).
      *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
@@ -120,9 +132,10 @@ class Transaction
         [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo);
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
 
-        $query = "SELECT t.*, i.model
+        $query = "SELECT t.*, i.model, l.location_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  LEFT JOIN locations l ON t.location_id = l.location_id
                   WHERE {$where}
                   ORDER BY {$orderBy}";
 
@@ -193,9 +206,10 @@ class Transaction
     /** READ - most recent N transactions, for the Dashboard */
     public function readRecent(int $limit = 5): array
     {
-        $query = "SELECT t.*, i.model
+        $query = "SELECT t.*, i.model, l.location_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  LEFT JOIN locations l ON t.location_id = l.location_id
                   ORDER BY t.transaction_id DESC
                   LIMIT :limit";
         $stmt = $this->conn->prepare($query);

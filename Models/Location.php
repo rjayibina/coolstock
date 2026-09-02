@@ -5,10 +5,11 @@ require_once __DIR__ . '/../Config/Database.php';
  * Location.php (Model)
  * Represents a single row of the locations table (e.g. "Main Store", "Warehouse").
  *
- * Linked to products via inventory_items.location_id - dropped in the
- * strict-ERD-compliance rework's Phase 3, then re-added (see
- * migration_readd_location_to_products.sql). The list page itself stays
- * simplified (ID + Name only, no Products column/filter/sort).
+ * No longer a single location_id on inventory_items (that concept doesn't
+ * fit once one product can have stock split across locations) - a
+ * location is linked to products via item_stock rows instead (see
+ * migration_add_stock_by_location.sql and ItemStock.php). The list page
+ * itself stays simplified (ID + Name only, no Products column/filter/sort).
  */
 class Location
 {
@@ -106,14 +107,32 @@ class Location
         return (int) $stmt->fetch()['total'];
     }
 
-    /** Helper - check whether a location still has inventory items attached
-     *  (prevents violating the FK constraint on inventory_items) */
+    /** Helper - check whether a location still has any stock recorded
+     *  against it (prevents violating the FK constraint on item_stock) */
     public function hasLinkedItems(int $id): bool
     {
-        $query = "SELECT COUNT(*) AS total FROM inventory_items WHERE location_id = :id";
+        $query = "SELECT COUNT(*) AS total FROM item_stock WHERE location_id = :id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         return (int) $stmt->fetch()['total'] > 0;
+    }
+
+    /** Bulk delete - skips any location that still has products, returns [deleted, skipped] ids */
+    public function bulkDelete(array $ids): array
+    {
+        $deleted = [];
+        $skipped = [];
+        foreach ($ids as $id) {
+            $id = (int) $id;
+            if ($this->hasLinkedItems($id)) {
+                $skipped[] = $id;
+                continue;
+            }
+            if ($this->delete($id)) {
+                $deleted[] = $id;
+            }
+        }
+        return ['deleted' => $deleted, 'skipped' => $skipped];
     }
 }

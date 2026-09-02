@@ -4,6 +4,7 @@ require_once __DIR__ . '/../Models/Category.php';
 require_once __DIR__ . '/../Models/Brand.php';
 require_once __DIR__ . '/../Models/ItemType.php';
 require_once __DIR__ . '/../Models/Location.php';
+require_once __DIR__ . '/../Models/ItemStock.php';
 require_once __DIR__ . '/../Helpers/SpreadsheetReader.php';
 
 /**
@@ -18,6 +19,7 @@ class InventoryItemController
     private Brand $brand;
     private ItemType $itemType;
     private Location $location;
+    private ItemStock $itemStock;
 
     public function __construct()
     {
@@ -26,6 +28,7 @@ class InventoryItemController
         $this->brand = new Brand();
         $this->itemType = new ItemType();
         $this->location = new Location();
+        $this->itemStock = new ItemStock();
     }
 
     private const PER_PAGE = 10;
@@ -46,6 +49,16 @@ class InventoryItemController
         $offset = ($page - 1) * self::PER_PAGE;
 
         $items = $this->item->readAll($categoryId, $sort, self::PER_PAGE, $offset, $locationId);
+
+        // Attach each item's per-location stock breakdown (used by the View
+        // modal - total_quantity already comes back from readAll() itself).
+        $itemIds = array_column($items, 'item_id');
+        $breakdowns = $this->itemStock->breakdownForItems($itemIds);
+        foreach ($items as &$it) {
+            $it['stock_breakdown'] = $breakdowns[(int) $it['item_id']] ?? [];
+        }
+        unset($it);
+
         $categories = $this->category->readAll();
         $brands = $this->brand->readAll();
         $itemTypes = $this->itemType->readAll();
@@ -76,15 +89,16 @@ class InventoryItemController
 
         $out = fopen('php://output', 'w');
         // Same column set the Import feature expects, so export/import round-trip cleanly.
-        // brand_name / type_name / location_name are lookup columns (like category_name) -
-        // the actual FKs are brand_id / item_type_id / location_id.
-        fputcsv($out, ['category_name', 'brand_name', 'type_name', 'location_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year']);
+        // brand_name / type_name are lookup columns (like category_name) -
+        // the actual FKs are brand_id / item_type_id. quantity is read-only
+        // here (total across all locations) - stock is only ever changed via
+        // Stock In/Out, never through import/export.
+        fputcsv($out, ['category_name', 'brand_name', 'type_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year', 'quantity']);
         foreach ($items as $it) {
             fputcsv($out, [
                 $it['category_name'] ?? '',
                 $it['brand_name'] ?? '',
                 $it['type_name'] ?? '',
-                $it['location_name'] ?? '',
                 $it['model'],
                 $it['energy_rating'] ?? '',
                 $it['monthly_consumption'] ?? '',
@@ -93,6 +107,7 @@ class InventoryItemController
                 $it['installation_type'] ?? '',
                 $it['power_input'] ?? '',
                 $it['year'] ?? '',
+                $it['total_quantity'],
             ]);
         }
         fclose($out);
@@ -106,7 +121,6 @@ class InventoryItemController
         $categories = $this->category->readAll();
         $brands = $this->brand->readAll();
         $itemTypes = $this->itemType->readAll();
-        $locations = $this->location->readAll();
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = $this->validate($_POST);
@@ -133,7 +147,6 @@ class InventoryItemController
         $categories = $this->category->readAll();
         $brands = $this->brand->readAll();
         $itemTypes = $this->itemType->readAll();
-        $locations = $this->location->readAll();
 
         if ($id <= 0) {
             header("Location: index.php?module=products&action=index");
@@ -211,7 +224,9 @@ class InventoryItemController
         require __DIR__ . '/../Views/products/import.php';
     }
 
-    /** Reads the uploaded spreadsheet and inserts a product per valid row */
+    /** Reads the uploaded spreadsheet and inserts a product per valid row.
+     *  Imported products always start with zero stock everywhere - stock is
+     *  only ever added afterwards via Stock In. */
     private function processImport(array $file): array
     {
         if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -225,8 +240,8 @@ class InventoryItemController
             throw new RuntimeException("The file has no data rows below the header.");
         }
 
-        // Expected header: category_name, brand_name, type_name, location_name,
-        //                   model, energy_rating, monthly_consumption, cooling_capacity,
+        // Expected header: category_name, brand_name, type_name, model,
+        //                   energy_rating, monthly_consumption, cooling_capacity,
         //                   refrigerant, installation_type, power_input, year
         $header = array_map(fn($h) => strtolower(trim((string) $h)), array_shift($rows));
         $col = array_flip($header);
@@ -249,12 +264,6 @@ class InventoryItemController
             $itemTypeByName[strtolower($t['type_name'])] = $t['item_type_id'];
         }
 
-        $locations = $this->location->readAll();
-        $locationByName = [];
-        foreach ($locations as $loc) {
-            $locationByName[strtolower($loc['location_name'])] = $loc['location_id'];
-        }
-
         $imported = 0;
         $skipped = [];
 
@@ -267,7 +276,6 @@ class InventoryItemController
             $categoryName = strtolower(trim($row[$col['category_name']] ?? ''));
             $brandName = strtolower(trim($row[$col['brand_name']] ?? ''));
             $typeName = strtolower(trim($row[$col['type_name']] ?? ''));
-            $locationName = strtolower(trim($row[$col['location_name']] ?? ''));
             $model = trim($row[$col['model']] ?? '');
 
             if ($model === '') {
@@ -288,10 +296,6 @@ class InventoryItemController
             }
             if ($typeName !== '' && !isset($itemTypeByName[$typeName])) {
                 $skipped[] = "Row $rowNum: item type \"" . ($row[$col['type_name']] ?? '') . "\" not found.";
-                continue;
-            }
-            if ($locationName !== '' && !isset($locationByName[$locationName])) {
-                $skipped[] = "Row $rowNum: location \"" . ($row[$col['location_name']] ?? '') . "\" not found.";
                 continue;
             }
 
@@ -318,7 +322,6 @@ class InventoryItemController
             $this->item->category_id = $categoryByName[$categoryName] ?? null;
             $this->item->brand_id = $brandByName[$brandName] ?? null;
             $this->item->item_type_id = $itemTypeByName[$typeName] ?? null;
-            $this->item->location_id = $locationByName[$locationName] ?? null;
             $this->item->model = $model;
             $this->item->energy_rating = $isAsset ? trim($row[$col['energy_rating']] ?? '') : null;
             $this->item->monthly_consumption = $isAsset ? (float) $row[$col['monthly_consumption']] : null;
@@ -396,7 +399,6 @@ class InventoryItemController
         $item->category_id = !empty($input['category_id']) ? (int) $input['category_id'] : null;
         $item->brand_id = !empty($input['brand_id']) ? (int) $input['brand_id'] : null;
         $item->item_type_id = !empty($input['item_type_id']) ? (int) $input['item_type_id'] : null;
-        $item->location_id = !empty($input['location_id']) ? (int) $input['location_id'] : null;
         $item->model = trim($input['model']);
         $item->energy_rating = $isAsset ? (trim($input['energy_rating'] ?? '') ?: null) : null;
         $item->monthly_consumption = $isAsset && is_numeric($input['monthly_consumption'] ?? '') ? (float) $input['monthly_consumption'] : null;
