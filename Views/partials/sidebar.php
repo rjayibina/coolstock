@@ -2,7 +2,8 @@
 /**
  * Views/partials/sidebar.php
  * Expects: $activeSection (string) - 'dashboard' | 'inventory' | 'settings'
- *          $activeSubNav (string) - 'products' | 'transactions' | 'categories' when in inventory
+ *          $activeSubNav (string) - 'products' | 'transactions' | 'delivery' |
+ *          'transfer' | 'categories' | 'brands' | 'itemtypes' | 'locations' when in inventory
  */
 $activeSection = $activeSection ?? '';
 $activeSubNav = $activeSubNav ?? '';
@@ -34,7 +35,15 @@ $inventoryOpen = $activeSection === 'inventory';
         </a>
         <a href="index.php?module=transactions&action=index" class="nav-subitem <?= $activeSubNav === 'transactions' ? 'active' : '' ?>">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            Transactions
+            Product Movement
+        </a>
+        <a href="index.php?module=delivery&action=index" class="nav-subitem <?= $activeSubNav === 'delivery' ? 'active' : '' ?>">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            Delivery
+        </a>
+        <a href="index.php?module=transfer&action=index" class="nav-subitem <?= $activeSubNav === 'transfer' ? 'active' : '' ?>">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            Transfer
         </a>
         <a href="index.php?module=categories&action=index" class="nav-subitem <?= $activeSubNav === 'categories' ? 'active' : '' ?>">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24L3 3v6.59a2 2 0 0 0 .59 1.41l9.58 9.59a2 2 0 0 0 2.83 0l4.59-4.59a2 2 0 0 0 0-2.83z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>

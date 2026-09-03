@@ -84,13 +84,14 @@ function itemTypePageUrl(int $page): string
                             <th style="width:36px;"><input type="checkbox" id="selectAllItemTypes" class="row-check" onclick="toggleAllItemTypes(this)"></th>
                             <th style="width:60px;">ID</th>
                             <th>Name</th>
+                            <th style="width:150px;">Serial No. on Stock Out</th>
                             <th style="width:150px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($itemTypes)): ?>
                             <tr class="empty-row">
-                                <td colspan="4">No item types match these filters.</td>
+                                <td colspan="5">No item types match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($itemTypes as $t): ?>
@@ -98,6 +99,7 @@ function itemTypePageUrl(int $page): string
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $t['item_type_id'] ?>" class="row-check itemtype-check" onchange="updateBulkBarItemTypes()"></td>
                                     <td class="cell-id"><?= (int) $t['item_type_id'] ?></td>
                                     <td><strong><?= htmlspecialchars($t['type_name']) ?></strong></td>
+                                    <td class="cell-muted"><?= ((int) $t['requires_serial'] === 1) ? 'Required' : 'Not required' ?></td>
                                     <td class="actions">
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditItemTypeModal(<?= $t['item_type_id'] ?>)">Edit</button>
                                         <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteItemTypeModal(<?= $t['item_type_id'] ?>)">Delete</button>
@@ -134,9 +136,14 @@ function itemTypePageUrl(int $page): string
                     <button type="button" class="modal-close" onclick="closeModal('addItemTypeModal')">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <form method="POST" action="index.php?module=itemtypes&action=create">
+                    <form method="POST" id="addItemTypeForm" action="index.php?module=itemtypes&action=create">
                         <label for="ait_type_name">Name</label>
                         <input type="text" id="ait_type_name" name="type_name" placeholder="e.g. Asset, Consumable" required>
+
+                        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin:14px 0;font-weight:400;">
+                            <input type="checkbox" id="ait_requires_serial" name="requires_serial" checked>
+                            Requires a serial number on Stock Out
+                        </label>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Item Type</button>
@@ -159,6 +166,11 @@ function itemTypePageUrl(int $page): string
 
                         <label for="eit_type_name">Name</label>
                         <input type="text" id="eit_type_name" name="type_name" required>
+
+                        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin:14px 0;font-weight:400;">
+                            <input type="checkbox" id="eit_requires_serial" name="requires_serial">
+                            Requires a serial number on Stock Out
+                        </label>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Item Type</button>
@@ -193,6 +205,8 @@ function itemTypePageUrl(int $page): string
         }
 
         function openAddItemTypeModal() {
+            document.getElementById('addItemTypeForm')?.reset();
+            document.getElementById('ait_requires_serial').checked = true;
             document.getElementById('addItemTypeModal').classList.add('open');
         }
 
@@ -203,6 +217,7 @@ function itemTypePageUrl(int $page): string
             document.getElementById('eit_item_type_id').value = id;
             document.getElementById('editItemTypeForm').action = 'index.php?module=itemtypes&action=edit&id=' + id;
             document.getElementById('eit_type_name').value = t.type_name || '';
+            document.getElementById('eit_requires_serial').checked = Number(t.requires_serial) === 1;
 
             document.getElementById('editItemTypeModal').classList.add('open');
         }

@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../Models/Category.php';
 require_once __DIR__ . '/../Models/InventoryItem.php';
 require_once __DIR__ . '/../Models/Transaction.php';
+require_once __DIR__ . '/../Models/ItemStock.php';
 
 /**
  * DashboardController.php
@@ -17,12 +18,14 @@ class DashboardController
         $category = new Category();
         $item = new InventoryItem();
         $transaction = new Transaction();
+        $itemStock = new ItemStock();
 
         $dbError = null;
         $stats = ['total_products' => 0, 'total_categories' => 0, 'total_transactions' => 0];
         $recentTransactions = [];
         $productsByCategory = [];
         $transactionsByType = [];
+        $predictedStockouts = [];
 
         try {
             $stats['total_products'] = $item->count();
@@ -38,7 +41,13 @@ class DashboardController
             $transactionsByType = $transaction->countByType();
         } catch (PDOException $e) {
             $dbError = ($dbError ? $dbError . " " : "")
-                . "Could not load transaction data — make sure the 'transactions' table has been created (run database/mister_aircon.sql).";
+                . "Could not load transaction data — make sure the 'transactions' table has been created (run database/coolstock_full_setup.sql).";
+        }
+
+        try {
+            $predictedStockouts = $itemStock->predictedStockouts();
+        } catch (PDOException $e) {
+            $dbError = ($dbError ? $dbError . " " : "") . "Could not load predicted stockout data.";
         }
 
         require __DIR__ . '/../Views/dashboard/index.php';

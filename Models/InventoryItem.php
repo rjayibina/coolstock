@@ -112,6 +112,7 @@ class InventoryItem
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
 
         $query = "SELECT i.*, c.category_name, b.brand_name, t.type_name,
+                          COALESCE(t.requires_serial, 1) AS requires_serial,
                           COALESCE((SELECT SUM(s.quantity) FROM item_stock s WHERE s.item_id = i.item_id), 0) AS total_quantity
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id
@@ -186,6 +187,7 @@ class InventoryItem
     public function readOne(int $id): array|false
     {
         $query = "SELECT i.*, c.category_name, b.brand_name, t.type_name,
+                          COALESCE(t.requires_serial, 1) AS requires_serial,
                           COALESCE((SELECT SUM(s.quantity) FROM item_stock s WHERE s.item_id = i.item_id), 0) AS total_quantity
                   FROM {$this->table} i
                   LEFT JOIN item_categories c ON i.category_id = c.category_id

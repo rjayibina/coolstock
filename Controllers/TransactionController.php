@@ -5,13 +5,13 @@ require_once __DIR__ . '/../Models/ItemStock.php';
 
 /**
  * TransactionController.php
- * Handles all five transaction types. Item Request, Borrow, and Return
- * are plain activity-log entries - creating one never touches a
- * product's stock level. Stock In/Out are the exception: each one is
- * paired with an ItemStock::adjust() call here to keep that location's
- * quantity in sync (see item_stock, migration_add_stock_by_location.sql).
- * Item Request keeps its pending -> approve/decline workflow, but
- * approving one still doesn't move any stock - only Stock In/Out do.
+ * Item Request, Borrow, and Return still exist as historical transaction
+ * types (old seed data uses them, and the Product Movement filter/table
+ * still display them) but there's currently no UI to create new ones or
+ * to approve/decline a pending one - that whole workflow is on pause for
+ * now. Stock In/Out are the exception: each one is paired with an
+ * ItemStock::adjust() call here to keep that location's quantity in sync
+ * (see item_stock, migration_add_stock_by_location.sql).
  */
 class TransactionController
 {
@@ -45,12 +45,12 @@ class TransactionController
 
         try {
             $page = max(1, (int) ($_GET['page'] ?? 1));
-            $totalCount = $this->transaction->countFiltered($filterItemId, $filterType, null, $dateFrom, $dateTo);
+            $totalCount = $this->transaction->countGroups($filterItemId, $filterType, null, $dateFrom, $dateTo);
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
             $page = min($page, $totalPages);
             $offset = ($page - 1) * self::PER_PAGE;
 
-            $transactions = $this->transaction->readAll($filterItemId, $filterType, null, $dateFrom, $dateTo, $sort, self::PER_PAGE, $offset);
+            $transactions = $this->transaction->readGrouped($filterItemId, $filterType, null, $dateFrom, $dateTo, $sort, self::PER_PAGE, $offset);
 
             $pagination = [
                 'page' => $page,
@@ -60,143 +60,276 @@ class TransactionController
             ];
         } catch (PDOException $e) {
             $error = "Could not load transactions: " . $e->getMessage()
-                . " — make sure the 'transactions' table exists (run database/migration_add_transactions.sql).";
+                . " — make sure the 'transactions' table exists (run database/coolstock_full_setup.sql).";
         }
         $items = $this->item->readAll();
         require __DIR__ . '/../Views/transactions/index.php';
     }
 
-    /** Show + handle the "log transaction" form, and the Products page's
-     *  Stock In/Out modal (both POST here; the modal also sets
-     *  redirect_to=products and location_id). */
+    /** Handles the Products page's single-product Stock Out (see
+     *  Views/products/index.php's stockForm - the only remaining caller).
+     *  Used to also power a standalone "Log Transaction" page for Item
+     *  Request/Borrow/Return; that page is retired for now, so a GET here
+     *  (no form submission) just bounces back to Products instead of
+     *  rendering a form that no longer exists. */
     public function create(): void
     {
-        $error = null;
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            header("Location: index.php?module=products&action=index");
+            exit;
+        }
+
+        $type = $_POST['transaction_type'] ?? '';
+        $itemId = (int) ($_POST['item_id'] ?? 0);
+        $locationId = (int) ($_POST['location_id'] ?? 0);
+
+        // A serialized Stock Out submits one text input per unit instead
+        // of a quantity number - see Views/products/index.php's stock
+        // modal. When present, the count of filled-in serials *is* the
+        // quantity; the hidden quantity field is ignored so the two
+        // can never disagree.
+        $serials = $this->cleanSerials($_POST['serial_numbers'] ?? []);
+        $isSerialized = $type === 'stock_out' && !empty($serials);
+        $qty = $isSerialized ? count($serials) : (int) ($_POST['quantity'] ?? 0);
+
+        $error = $this->validate($_POST, $isSerialized ? $qty : null);
+
+        if (!$error && $isSerialized && count($serials) !== count(array_unique($serials))) {
+            $error = "Each serial number can only be used once per Stock Out.";
+        }
+
+        // Stock Out can't take a location below zero - checked separately
+        // from validate() so the message can include how much is available.
+        if (!$error && $type === 'stock_out') {
+            $available = $this->itemStock->getQuantity($itemId, $locationId);
+            if ($qty > $available) {
+                header("Location: index.php?module=products&action=index&status=stock_out_insufficient&available=$available");
+                exit;
+            }
+        }
+
+        if ($error) {
+            header("Location: index.php?module=products&action=index&status=stock_out_error&message=" . urlencode($error));
+            exit;
+        }
+
+        $this->transaction->item_id = $itemId;
+        $this->transaction->location_id = $locationId;
+        $this->transaction->transaction_type = $type;
+        $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+        $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
+        $this->transaction->notes = trim($_POST['notes'] ?? '');
+        $this->transaction->status = 'completed';
+
+        $created = $isSerialized
+            ? $this->createSerializedStockOut($itemId, $serials)
+            : $this->createSingle($qty);
+
+        if (!$created) {
+            header("Location: index.php?module=products&action=index&status=stock_out_error&message=" . urlencode('Something went wrong while logging the transaction.'));
+            exit;
+        }
+
+        $this->itemStock->adjust($itemId, $locationId, -$qty);
+        header("Location: index.php?module=products&action=index&status=$type");
+        exit;
+    }
+
+    /** Inserts one transaction row using whatever $this->transaction is
+     *  already populated with, at the given quantity. Used by create()
+     *  for a non-serialized Stock Out. */
+    private function createSingle(int $qty): bool
+    {
+        $this->transaction->quantity = $qty;
+        $this->transaction->serial_number = null;
+        return $this->transaction->create();
+    }
+
+    /** Inserts one transaction row per serial number (quantity = 1 each),
+     *  reusing every other field already set on $this->transaction. Stops
+     *  and returns false on the first failed insert. */
+    private function createSerializedStockOut(int $itemId, array $serials): bool
+    {
+        foreach ($serials as $serial) {
+            $this->transaction->transaction_id = null;
+            $this->transaction->item_id = $itemId;
+            $this->transaction->quantity = 1;
+            $this->transaction->serial_number = $serial;
+            if (!$this->transaction->create()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Trims and drops empty entries from a posted serial_numbers[] array */
+    private function cleanSerials(array $raw): array
+    {
+        $cleaned = array_map('trim', $raw);
+        return array_values(array_filter($cleaned, fn($s) => $s !== ''));
+    }
+
+    /** Returns every line item sharing one Delivery/Transfer reference
+     *  number as JSON - powers the Product Movement "view products in
+     *  this order/transfer" modal (see Transaction::readByReferenceNumber()). */
+    public function batch(): void
+    {
+        header('Content-Type: application/json');
+
+        $referenceNumber = trim($_GET['reference_number'] ?? '');
+        if ($referenceNumber === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Missing reference number.']);
+            exit;
+        }
+
+        $rows = $this->transaction->readByReferenceNumber($referenceNumber);
+        echo json_encode(array_map(function ($row) {
+            return [
+                'model' => $row['model'] ?? 'Unknown product',
+                'quantity' => (int) $row['quantity'],
+                'serial_number' => $row['serial_number'],
+                'location_name' => $row['location_name'],
+                'to_location_name' => $row['to_location_name'],
+                'manually_added' => (int) $row['manually_added'] === 1,
+            ];
+        }, $rows));
+        exit;
+    }
+
+    /** Handles the Products page's "Stock Out Selected" bulk action: takes
+     *  several products out of one location in a single submission. Mirrors
+     *  Delivery/Transfer's convention - one 'stock_out' transaction row per
+     *  unit removed (quantity = 1, serial_number set) for products whose
+     *  item type requires a serial number, or one row per product
+     *  (quantity = entered amount, serial_number null) otherwise. Every
+     *  line is checked against available stock before anything is written,
+     *  same as Transfer - no partial bulk stock-outs. */
+    public function bulkStockOut(): void
+    {
+        $locationId = (int) ($_POST['location_id'] ?? 0);
+        $releasedBy = trim($_POST['technician_name'] ?? '');
+        $date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+        $notes = trim($_POST['notes'] ?? '');
+        $quantities = $_POST['quantities'] ?? [];
+        $serialsByItem = $_POST['serials'] ?? [];
+
         $items = $this->item->readAll();
-        $prefillItemId = $_GET['item_id'] ?? null;
-        $prefillType = $_GET['type'] ?? null;
+        $itemNames = array_column($items, 'model', 'item_id');
+        $itemRequiresSerial = [];
+        foreach ($items as $it) {
+            $itemRequiresSerial[(int) $it['item_id']] = (int) $it['requires_serial'] === 1;
+        }
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $type = $_POST['transaction_type'] ?? '';
-            $isStock = in_array($type, self::STOCK_TYPES, true);
-            $toProducts = ($_POST['redirect_to'] ?? '') === 'products';
+        $error = $this->validateBulkStockOut($locationId, $releasedBy, $quantities, $serialsByItem, $itemNames, $itemRequiresSerial);
 
-            $error = $this->validate($_POST);
-            $itemId = (int) ($_POST['item_id'] ?? 0);
-            $locationId = (int) ($_POST['location_id'] ?? 0);
-            $qty = (int) ($_POST['quantity'] ?? 0);
+        if (!$error) {
+            $lines = $this->buildBulkStockOutLines($quantities, $serialsByItem);
+            $logged = 0;
 
-            // Stock Out can't take a location below zero - checked separately
-            // from validate() so the message can include how much is available.
-            if (!$error && $type === 'stock_out') {
-                $available = $this->itemStock->getQuantity($itemId, $locationId);
-                if ($qty > $available) {
-                    if ($toProducts) {
-                        header("Location: index.php?module=products&action=index&status=stock_out_insufficient&available=$available");
-                        exit;
-                    }
-                    $error = "Not enough stock at that location: only $available available.";
-                }
-            }
-
-            if (!$error) {
-                $isRequest = $type === 'item_request';
-
+            foreach ($lines as $itemId => $line) {
+                $this->transaction->transaction_id = null;
                 $this->transaction->item_id = $itemId;
-                $this->transaction->location_id = $isStock ? $locationId : null;
-                $this->transaction->transaction_type = $type;
-                $this->transaction->quantity = $qty;
-                $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
-                $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
-                $this->transaction->notes = trim($_POST['notes'] ?? '');
-                $this->transaction->status = $isRequest ? 'pending' : 'completed';
+                $this->transaction->location_id = $locationId;
+                $this->transaction->to_location_id = null;
+                $this->transaction->transaction_type = 'stock_out';
+                $this->transaction->transaction_date = $date;
+                $this->transaction->technician_name = $releasedBy;
+                $this->transaction->supplier_name = null;
+                $this->transaction->notes = $notes;
+                $this->transaction->status = 'completed';
 
-                if ($this->transaction->create()) {
-                    if ($isStock) {
-                        $delta = $type === 'stock_in' ? $qty : -$qty;
-                        $this->itemStock->adjust($itemId, $locationId, $delta);
+                if (!empty($line['serials'])) {
+                    if (!$this->createSerializedStockOut($itemId, $line['serials'])) {
+                        continue;
                     }
-
-                    if ($toProducts) {
-                        header("Location: index.php?module=products&action=index&status=$type");
-                        exit;
-                    }
-
-                    $status = $isRequest ? 'requested' : 'created';
-                    header("Location: index.php?module=transactions&action=index&status=$status");
-                    exit;
+                } elseif (!$this->createSingle($line['qty'])) {
+                    continue;
                 }
-                $error = "Something went wrong while logging the transaction.";
-            }
-        }
 
-        require __DIR__ . '/../Views/transactions/create.php';
-    }
-
-    /** Approves a pending Item Request: marks it completed. No stock effect - there's no stock level to deduct. */
-    public function approve(): void
-    {
-        $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-
-        if ($id > 0) {
-            $record = $this->transaction->readOne($id);
-
-            if (!$record || $record['transaction_type'] !== 'item_request' || $record['status'] !== 'pending') {
-                header("Location: index.php?module=transactions&action=index&status=approve_invalid");
-                exit;
+                $this->itemStock->adjust($itemId, $locationId, -$line['qty']);
+                $logged++;
             }
 
-            $this->transaction->markCompleted($id);
+            header("Location: index.php?module=products&action=index&status=bulk_stock_out&count=$logged");
+            exit;
         }
 
-        header("Location: index.php?module=transactions&action=index&status=approved");
+        header("Location: index.php?module=products&action=index&status=bulk_stock_out_error&message=" . urlencode($error));
         exit;
     }
 
-    /** Declines a pending Item Request. No stock effect (never deducted in
-     *  the first place) - the row stays as a record that it was refused. */
-    public function decline(): void
+    /** Merges quantities[] and serials[] into one line per item: qty is
+     *  either the posted number (non-serialized) or the serial count
+     *  (serialized) - so buildBulkStockOutLines() and the stock-availability
+     *  check always agree on how many units a line actually removes. */
+    private function buildBulkStockOutLines(array $quantities, array $serialsByItem): array
     {
-        $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+        $lines = [];
 
-        if ($id > 0) {
-            $record = $this->transaction->readOne($id);
-            if ($record && $record['transaction_type'] === 'item_request' && $record['status'] === 'pending') {
-                $this->transaction->markDeclined($id);
-                header("Location: index.php?module=transactions&action=index&status=declined");
-                exit;
-            }
-        }
-
-        header("Location: index.php?module=transactions&action=index&status=approve_invalid");
-        exit;
-    }
-
-    /** Bulk approve - only affects pending Item Requests among the selection;
-     *  anything else (already handled, or a different type) is silently skipped */
-    public function bulkApprove(): void
-    {
-        $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
-        $approved = 0;
-        $skipped = 0;
-
-        foreach ($ids as $id) {
-            $record = $this->transaction->readOne($id);
-            if (!$record || $record['transaction_type'] !== 'item_request' || $record['status'] !== 'pending') {
-                $skipped++;
+        foreach ($serialsByItem as $itemId => $rawSerials) {
+            $serials = $this->cleanSerials((array) $rawSerials);
+            if (empty($serials)) {
                 continue;
             }
-
-            $this->transaction->markCompleted($id);
-            $approved++;
+            $lines[(int) $itemId] = ['qty' => count($serials), 'serials' => array_unique($serials)];
         }
 
-        $status = $skipped > 0 ? 'bulk_approve_partial' : 'bulk_approved';
-        header("Location: index.php?module=transactions&action=index&status=$status&count=$approved&skipped=$skipped");
-        exit;
+        foreach ($quantities as $itemId => $qty) {
+            $itemId = (int) $itemId;
+            if (isset($lines[$itemId])) {
+                continue; // already covered by serials above
+            }
+            $qty = (int) $qty;
+            if ($qty > 0) {
+                $lines[$itemId] = ['qty' => $qty, 'serials' => []];
+            }
+        }
+
+        return $lines;
     }
 
-    private function validate(array $input): ?string
+    private function validateBulkStockOut(int $locationId, string $releasedBy, array $quantities, array $serialsByItem, array $itemNames, array $itemRequiresSerial): ?string
+    {
+        if ($releasedBy === '') {
+            return "Released By is required.";
+        }
+        if ($locationId <= 0) {
+            return "Please select a location.";
+        }
+
+        $lines = $this->buildBulkStockOutLines($quantities, $serialsByItem);
+        if (empty($lines)) {
+            return "Enter a quantity or serial numbers for at least one product.";
+        }
+
+        $shortfalls = [];
+        foreach ($lines as $itemId => $line) {
+            $name = $itemNames[$itemId] ?? "item #$itemId";
+
+            if (($itemRequiresSerial[$itemId] ?? true) && empty($line['serials'])) {
+                return "$name requires a serial number for each unit on Stock Out.";
+            }
+            if (!empty($line['serials']) && count($line['serials']) !== $line['qty']) {
+                return "$name has a duplicate serial number - each one can only be used once per Stock Out.";
+            }
+
+            $available = $this->itemStock->getQuantity($itemId, $locationId);
+            if ($line['qty'] > $available) {
+                $shortfalls[] = "$name (need {$line['qty']}, only $available available)";
+            }
+        }
+
+        if (!empty($shortfalls)) {
+            return "Not enough stock at that location for: " . implode('; ', $shortfalls) . ".";
+        }
+        return null;
+    }
+
+    /** $serializedQty, when passed, is the count of entered serial numbers
+     *  for a serialized Stock Out - checked instead of the posted quantity
+     *  field, which that form doesn't send. */
+    private function validate(array $input, ?int $serializedQty = null): ?string
     {
         if (empty($input['item_id'])) {
             return "Please select a product.";
@@ -204,7 +337,11 @@ class TransactionController
         if (empty($input['transaction_type']) || !in_array($input['transaction_type'], Transaction::TYPES, true)) {
             return "Please select a valid transaction type.";
         }
-        if (!is_numeric($input['quantity'] ?? '') || (int) $input['quantity'] <= 0) {
+        if ($serializedQty !== null) {
+            if ($serializedQty <= 0) {
+                return "Enter at least one serial number.";
+            }
+        } elseif (!is_numeric($input['quantity'] ?? '') || (int) $input['quantity'] <= 0) {
             return "Quantity must be a positive number.";
         }
         if (in_array($input['transaction_type'], self::STOCK_TYPES, true) && empty($input['location_id'])) {

@@ -2,7 +2,7 @@
 /**
  * index.php
  * Front controller: every request comes through here first.
- * ?module=dashboard|categories|products|transactions|brands|itemtypes|locations
+ * ?module=dashboard|categories|products|transactions|brands|itemtypes|locations|delivery|transfer
  * ?action=index|create|edit|delete
  */
 require_once __DIR__ . '/Controllers/DashboardController.php';
@@ -12,6 +12,9 @@ require_once __DIR__ . '/Controllers/TransactionController.php';
 require_once __DIR__ . '/Controllers/BrandController.php';
 require_once __DIR__ . '/Controllers/ItemTypeController.php';
 require_once __DIR__ . '/Controllers/LocationController.php';
+require_once __DIR__ . '/Controllers/DeliveryController.php';
+require_once __DIR__ . '/Controllers/TransferController.php';
+require_once __DIR__ . '/Helpers/format.php';
 
 $module = $_GET['module'] ?? 'dashboard';
 $action = $_GET['action'] ?? 'index';
@@ -35,6 +38,12 @@ switch ($module) {
     case 'locations':
         $controller = new LocationController();
         break;
+    case 'delivery':
+        $controller = new DeliveryController();
+        break;
+    case 'transfer':
+        $controller = new TransferController();
+        break;
     case 'dashboard':
     default:
         $controller = new DashboardController();
@@ -44,7 +53,7 @@ switch ($module) {
 
 // Public, safely-callable actions. Anything else (or a method that doesn't
 // exist on the resolved controller) falls back to index().
-$allowedActions = ['index', 'create', 'edit', 'delete', 'import', 'export', 'bulkDelete', 'bulkUpdateCategory', 'approve', 'decline', 'bulkApprove'];
+$allowedActions = ['index', 'create', 'edit', 'delete', 'import', 'export', 'bulkDelete', 'bulkUpdateCategory', 'bulkStockOut', 'batch'];
 
 try {
     if (in_array($action, $allowedActions, true) && method_exists($controller, $action)) {

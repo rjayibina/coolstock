@@ -1,7 +1,8 @@
 <?php
 /**
  * Views/products/create.php
- * Expects: $error (string|null), $categories (array), $brands (array), $itemTypes (array)
+ * Expects: $error (string|null), $categories (array), $brands (array),
+ *          $itemTypes (array), $locations (array)
  */
 $pageTitle = 'Add Product';
 $activeSection = 'inventory';
@@ -26,6 +27,10 @@ $old = $_POST ?? [];
 
         <div class="form-card">
             <form method="POST" id="addProductForm" action="index.php?module=products&action=create">
+                <label for="model">Model</label>
+                <input type="text" id="model" name="model" placeholder="e.g. FTKC50UVM"
+                       value="<?= htmlspecialchars($old['model'] ?? '') ?>" required>
+
                 <?php $selectedCategoryId = $old['category_id'] ?? ''; ?>
                 <label for="category_id">Category</label>
                 <select id="category_id" name="category_id" required>
@@ -35,25 +40,35 @@ $old = $_POST ?? [];
                     <?php endforeach; ?>
                 </select>
 
-                <label for="model">Model</label>
-                <input type="text" id="model" name="model" placeholder="e.g. FTKC50UVM"
-                       value="<?= htmlspecialchars($old['model'] ?? '') ?>" required>
-
-                <label for="brand_id">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                <select id="brand_id" name="brand_id">
-                    <option value="">No brand</option>
+                <label for="brand_id">Brand</label>
+                <select id="brand_id" name="brand_id" required>
+                    <option value="" disabled <?= empty($old['brand_id']) ? 'selected' : '' ?>>Select a brand</option>
                     <?php foreach ($brands as $b): ?>
                         <option value="<?= $b['brand_id'] ?>" <?= (string) ($old['brand_id'] ?? '') === (string) $b['brand_id'] ? 'selected' : '' ?>><?= htmlspecialchars($b['brand_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
 
-                <label for="item_type_id">Item Type <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                <select id="item_type_id" name="item_type_id" onchange="updateSpecsVisibility()">
-                    <option value="">No item type</option>
+                <?php $selectedItemTypeId = $old['item_type_id'] ?? ''; ?>
+                <label for="item_type_id">Item Type</label>
+                <select id="item_type_id" name="item_type_id" onchange="updateSpecsVisibility()" required>
+                    <option value="" disabled <?= $selectedItemTypeId === '' ? 'selected' : '' ?>>Select an item type</option>
                     <?php foreach ($itemTypes as $t): ?>
-                        <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>" <?= (string) ($old['item_type_id'] ?? '') === (string) $t['item_type_id'] ? 'selected' : '' ?>><?= htmlspecialchars($t['type_name']) ?></option>
+                        <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>" <?= (string) $selectedItemTypeId === (string) $t['item_type_id'] ? 'selected' : '' ?>><?= htmlspecialchars($t['type_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
+
+                <?php $selectedLocationId = $old['location_id'] ?? ''; ?>
+                <label for="location_id">Location</label>
+                <select id="location_id" name="location_id" required>
+                    <option value="" disabled <?= $selectedLocationId === '' ? 'selected' : '' ?>>Select a location</option>
+                    <?php foreach ($locations as $loc): ?>
+                        <option value="<?= $loc['location_id'] ?>" <?= (string) $selectedLocationId === (string) $loc['location_id'] ? 'selected' : '' ?>><?= htmlspecialchars($loc['location_name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+
+                <label for="quantity">Quantity <span style="font-weight:400;color:var(--text-muted);">at that location</span></label>
+                <input type="number" id="quantity" name="quantity" min="0" step="1" placeholder="0"
+                       value="<?= htmlspecialchars($old['quantity'] ?? '0') ?>" required>
 
                 <div id="specs_section">
                     <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>

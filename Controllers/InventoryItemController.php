@@ -121,14 +121,28 @@ class InventoryItemController
         $categories = $this->category->readAll();
         $brands = $this->brand->readAll();
         $itemTypes = $this->itemType->readAll();
+        $locations = $this->location->readAll();
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $error = $this->validate($_POST);
+            $error = $this->validate($_POST, true);
 
             if (!$error) {
                 $this->hydrate($this->item, $_POST);
 
                 if ($this->item->create()) {
+                    // Location isn't a column on the product itself (stock is
+                    // per-location via item_stock, not a single location_id
+                    // on inventory_items - see migration_add_stock_by_location.sql)
+                    // - this seeds an item_stock row at the chosen location
+                    // with whatever starting quantity was entered (0 is a
+                    // valid, deliberate choice - "this product lives here,
+                    // no stock yet"). Same shape adjust() already creates on
+                    // a real Stock In, just without its own transaction row -
+                    // there's no Received By/Date collected on this form to
+                    // log one against, unlike a real Stock In/Delivery.
+                    $newItemId = $this->item->lastInsertId();
+                    $this->itemStock->adjust($newItemId, (int) $_POST['location_id'], (int) $_POST['quantity']);
+
                     header("Location: index.php?module=products&action=index&status=created");
                     exit;
                 }
@@ -364,13 +378,29 @@ class InventoryItemController
     ];
 
     /** Shared validation for create + edit */
-    private function validate(array $input): ?string
+    /** $isCreate adds two checks that only apply when adding a brand-new
+     *  product, never when editing an existing one: Item Type and Location
+     *  are required on create (Location seeds the product's first
+     *  item_stock row - see create() - and isn't a field edit() even has). */
+    private function validate(array $input, bool $isCreate = false): ?string
     {
         if (trim($input['model'] ?? '') === '') {
             return "Model is required.";
         }
         if (empty($input['category_id'])) {
             return "Category is required.";
+        }
+        if ($isCreate && empty($input['item_type_id'])) {
+            return "Item Type is required.";
+        }
+        if ($isCreate && empty($input['brand_id'])) {
+            return "Brand is required.";
+        }
+        if ($isCreate && empty($input['location_id'])) {
+            return "Location is required.";
+        }
+        if ($isCreate && (!is_numeric($input['quantity'] ?? '') || (int) $input['quantity'] < 0)) {
+            return "Quantity must be 0 or a positive number.";
         }
         if ($this->isAssetType($input['item_type_id'] ?? null)) {
             foreach (self::SPEC_FIELDS as $field => $label) {

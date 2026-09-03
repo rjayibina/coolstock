@@ -20,6 +20,8 @@ $typeColors = [
     'item_request' => '#9333EA',
     'borrow' => '#D97706',
     'stock_out' => '#4C5FD5',
+    'delivery' => '#0369A1',
+    'transfer' => '#BE185D',
 ];
 ?>
         <div class="page-header">
@@ -83,6 +85,46 @@ $typeColors = [
             </div>
         </div>
 
+        <div class="section-title">Predicted Stockouts</div>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Location</th>
+                        <th>Status</th>
+                        <th>Confidence</th>
+                        <th>Past Stockouts</th>
+                        <th>Frequency (per 30d)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($predictedStockouts)): ?>
+                        <tr class="empty-row"><td colspan="6">No stockout risk detected right now.</td></tr>
+                    <?php else: ?>
+                        <?php foreach ($predictedStockouts as $row): ?>
+                            <tr>
+                                <td><strong><?= htmlspecialchars($row['model']) ?></strong></td>
+                                <td class="cell-muted"><?= htmlspecialchars($row['location_name']) ?></td>
+                                <td>
+                                    <?php if ($row['status'] === 'actual'): ?>
+                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Out now</span>
+                                    <?php elseif ($row['days_until'] <= 0): ?>
+                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Overdue by <?= abs($row['days_until']) ?>d</span>
+                                    <?php else: ?>
+                                        <span class="badge" style="background:var(--warning-bg);color:var(--warning);">In ~<?= $row['days_until'] ?>d (<?= htmlspecialchars($row['predicted_date']) ?>)</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="cell-muted"><?= $row['confidence'] ? htmlspecialchars($row['confidence']) : '—' ?></td>
+                                <td class="cell-id"><?= (int) $row['stockout_count'] ?></td>
+                                <td class="cell-id"><?= $row['stockout_frequency'] ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+
         <div class="section-title">Recent Transactions</div>
         <div class="table-card">
             <table>
@@ -111,7 +153,7 @@ $typeColors = [
                                     <?php endif; ?>
                                 </td>
                                 <td class="cell-id"><?= (int) $t['quantity'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars($t['created_at']) ?></td>
+                                <td class="cell-muted"><?= htmlspecialchars(format_datetime($t['created_at'])) ?></td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>

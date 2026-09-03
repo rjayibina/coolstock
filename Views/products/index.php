@@ -109,6 +109,12 @@ require __DIR__ . '/../partials/header.php';
             <div class="alert alert-success">Stock removed successfully.</div>
         <?php elseif ($status === 'stock_out_insufficient'): ?>
             <div class="alert alert-warning">Not enough stock at that location — only <?= (int) ($_GET['available'] ?? 0) ?> available.</div>
+        <?php elseif ($status === 'stock_out_error'): ?>
+            <div class="alert alert-warning"><?= htmlspecialchars($_GET['message'] ?? 'Something went wrong.') ?></div>
+        <?php elseif ($status === 'bulk_stock_out'): ?>
+            <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> stocked out.</div>
+        <?php elseif ($status === 'bulk_stock_out_error'): ?>
+            <div class="alert alert-warning"><?= htmlspecialchars($_GET['message'] ?? 'Something went wrong.') ?></div>
         <?php endif; ?>
 
         <div class="sort-bar">
@@ -131,6 +137,7 @@ require __DIR__ . '/../partials/header.php';
                     <?php endforeach; ?>
                 </select>
                 <button type="submit" formaction="index.php?module=products&action=bulkUpdateCategory" class="btn btn-secondary btn-sm">Change Category</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="openBulkStockOutModal()">Stock Out Selected</button>
             </div>
 
             <div class="table-card">
@@ -163,8 +170,7 @@ require __DIR__ . '/../partials/header.php';
                                     <td class="cell-muted"><?= htmlspecialchars($it['type_name'] ?? '—') ?></td>
                                     <td class="cell-id"><?= (int) $it['total_quantity'] ?></td>
                                     <td class="actions">
-                                        <button type="button" class="btn btn-sm" style="background:var(--success-bg);color:var(--success);" title="Stock in" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_in')">+</button>
-                                        <button type="button" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);" title="Stock out" onclick="openStockModal(<?= $it['item_id'] ?>, 'stock_out')">&minus;</button>
+                                        <button type="button" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);" title="Stock out" onclick="openStockModal(<?= $it['item_id'] ?>)">Stock Out</button>
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditProductModal(<?= $it['item_id'] ?>)">Edit</button>
                                     </td>
                                 </tr>
@@ -235,6 +241,9 @@ require __DIR__ . '/../partials/header.php';
                 </div>
                 <div class="modal-body">
                     <form method="POST" id="addProductForm" action="index.php?module=products&action=create">
+                        <label for="ap_model">Model</label>
+                        <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM" required>
+
                         <label for="ap_category_id">Category</label>
                         <select id="ap_category_id" name="category_id" required>
                             <option value="" disabled selected>Select a category</option>
@@ -243,24 +252,32 @@ require __DIR__ . '/../partials/header.php';
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="ap_model">Model</label>
-                        <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM" required>
-
-                        <label for="ap_brand_id">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ap_brand_id" name="brand_id">
-                            <option value="">No brand</option>
+                        <label for="ap_brand_id">Brand</label>
+                        <select id="ap_brand_id" name="brand_id" required>
+                            <option value="" disabled selected>Select a brand</option>
                             <?php foreach ($brands as $b): ?>
                                 <option value="<?= $b['brand_id'] ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="ap_item_type_id">Item Type <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ap_item_type_id" name="item_type_id" onchange="updateSpecsVisibility('ap')">
-                            <option value="">No item type</option>
+                        <label for="ap_item_type_id">Item Type</label>
+                        <select id="ap_item_type_id" name="item_type_id" onchange="updateSpecsVisibility('ap')" required>
+                            <option value="" disabled selected>Select an item type</option>
                             <?php foreach ($itemTypes as $t): ?>
                                 <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>"><?= htmlspecialchars($t['type_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+
+                        <label for="ap_location_id">Location</label>
+                        <select id="ap_location_id" name="location_id" required>
+                            <option value="" disabled selected>Select a location</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="ap_quantity">Quantity</label>
+                        <input type="number" id="ap_quantity" name="quantity" min="0" step="1" placeholder="0" value="0" required>
 
                         <div id="ap_specs_section">
                             <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
@@ -370,17 +387,25 @@ require __DIR__ . '/../partials/header.php';
         <div id="stockModal" class="modal-overlay" onclick="if(event.target===this) closeModal('stockModal')">
             <div class="modal-dialog">
                 <div class="modal-header">
-                    <h3 id="sm_title">Stock In</h3>
+                    <h3 id="sm_title">Stock Out</h3>
                     <button type="button" class="modal-close" onclick="closeModal('stockModal')">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form method="POST" id="stockForm" action="index.php?module=transactions&action=create">
                         <input type="hidden" name="item_id" id="sm_item_id" value="">
-                        <input type="hidden" name="transaction_type" id="sm_transaction_type" value="stock_in">
+                        <input type="hidden" name="transaction_type" value="stock_out">
                         <input type="hidden" name="redirect_to" value="products">
 
-                        <label for="sm_quantity">Quantity</label>
-                        <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity" required>
+                        <div id="sm_quantity_group">
+                            <label for="sm_quantity">Quantity</label>
+                            <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity">
+                        </div>
+
+                        <div id="sm_serial_group" style="display:none;">
+                            <label>Serial Numbers <span style="font-weight:400;color:var(--text-muted);">(one per unit)</span></label>
+                            <div id="sm_serial_rows"></div>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="addSerialRow('sm_serial_rows')" style="margin-top:6px;">+ Add Serial Number</button>
+                        </div>
 
                         <label for="sm_location_id">Location</label>
                         <select id="sm_location_id" name="location_id" required>
@@ -393,15 +418,52 @@ require __DIR__ . '/../partials/header.php';
                         <label for="sm_transaction_date">Stock Date</label>
                         <input type="date" id="sm_transaction_date" name="transaction_date" required>
 
-                        <label for="sm_technician_name" id="sm_technician_label">Received By</label>
+                        <label for="sm_technician_name">Released By</label>
                         <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
 
                         <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
                         <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
 
                         <div class="form-actions">
-                            <button type="submit" class="btn btn-success" id="sm_submit">Add Stock</button>
+                            <button type="submit" class="btn btn-danger-solid">Remove Stock</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('stockModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="bulkStockModal" class="modal-overlay" onclick="if(event.target===this) closeModal('bulkStockModal')">
+            <div class="modal-dialog">
+                <div class="modal-header">
+                    <h3>Stock Out Selected Products</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('bulkStockModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" id="bulkStockForm" action="index.php?module=transactions&action=bulkStockOut">
+                        <label for="bsm_location_id">Stock Out From</label>
+                        <select id="bsm_location_id" name="location_id" required>
+                            <option value="" disabled selected>Select a location</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="bsm_transaction_date">Stock Date</label>
+                        <input type="date" id="bsm_transaction_date" name="transaction_date" required>
+
+                        <label for="bsm_technician_name">Released By</label>
+                        <input type="text" id="bsm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
+
+                        <label>Products</label>
+                        <div id="bsm_product_rows" class="table-card" style="padding:14px;margin-bottom:16px;"></div>
+
+                        <label for="bsm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <textarea id="bsm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-danger-solid">Remove Stock</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeModal('bulkStockModal')">Cancel</button>
                         </div>
                     </form>
                 </div>
@@ -548,26 +610,89 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('editProductModal').classList.add('open');
         }
 
-        // Opens the Stock modal already set to 'stock_in' or 'stock_out' -
-        // there's no in-modal toggle, the +/- button you clicked picks the direction.
-        function openStockModal(id, mode) {
+        // Opens the Stock Out modal for one product. Products whose item
+        // type requires a serial number (Asset by default - see
+        // item_types.requires_serial) get a per-unit serial number list
+        // instead of a plain quantity field; everything else keeps the
+        // quantity field, unchanged.
+        function openStockModal(id) {
             const p = productsData[id];
             if (!p) return;
 
             document.getElementById('stockForm').reset();
             document.getElementById('sm_item_id').value = id;
-            document.getElementById('sm_transaction_type').value = mode;
             document.getElementById('sm_transaction_date').value = new Date().toISOString().slice(0, 10);
+            document.getElementById('sm_title').textContent = 'Stock Out: ' + p.model;
 
-            const isStockIn = mode === 'stock_in';
-            document.getElementById('sm_title').textContent = (isStockIn ? 'Stock In' : 'Stock Out') + ': ' + p.model;
-            document.getElementById('sm_technician_label').textContent = isStockIn ? 'Received By' : 'Released By';
+            const needsSerial = Number(p.requires_serial) === 1;
+            document.getElementById('sm_quantity_group').style.display = needsSerial ? 'none' : '';
+            document.getElementById('sm_quantity').required = !needsSerial;
+            document.getElementById('sm_serial_group').style.display = needsSerial ? '' : 'none';
 
-            const submitBtn = document.getElementById('sm_submit');
-            submitBtn.textContent = isStockIn ? 'Add Stock' : 'Remove Stock';
-            submitBtn.className = isStockIn ? 'btn btn-success' : 'btn btn-danger-solid';
+            const rows = document.getElementById('sm_serial_rows');
+            rows.innerHTML = '';
+            if (needsSerial) {
+                addSerialRow('sm_serial_rows');
+            }
 
             document.getElementById('stockModal').classList.add('open');
+        }
+
+        // Appends one "serial number" text input (with a Remove button) to
+        // the given container. Shared by the single-product Stock Out
+        // modal (name="serial_numbers[]") and the bulk one, which passes a
+        // per-product field name (name="serials[<item_id>][]") instead.
+        function addSerialRow(containerId, fieldName) {
+            fieldName = fieldName || 'serial_numbers[]';
+            const container = document.getElementById(containerId);
+            const row = document.createElement('div');
+            row.className = 'serial-row';
+            row.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;';
+            row.innerHTML = '<input type="text" name="' + htmlEscape(fieldName) + '" placeholder="Serial number" style="flex:1;" required>'
+                + '<button type="button" class="btn btn-secondary btn-sm" onclick="this.parentElement.remove()">&times;</button>';
+            container.appendChild(row);
+        }
+
+        // Builds the bulk Stock Out modal's product list from whichever
+        // rows are currently checked on the Products table. Assets (or any
+        // item type requiring a serial) get a serial number list per unit;
+        // everything else gets a plain quantity field, same rule as the
+        // single-product modal.
+        function openBulkStockOutModal() {
+            const checked = Array.from(document.querySelectorAll('.product-check:checked')).map(cb => cb.value);
+            if (checked.length === 0) return;
+
+            document.getElementById('bulkStockForm').reset();
+            document.getElementById('bsm_transaction_date').value = new Date().toISOString().slice(0, 10);
+
+            const container = document.getElementById('bsm_product_rows');
+            container.innerHTML = '';
+
+            checked.forEach(id => {
+                const p = productsData[id];
+                if (!p) return;
+                const needsSerial = Number(p.requires_serial) === 1;
+
+                const row = document.createElement('div');
+                row.className = 'bulk-stock-row';
+                row.style.cssText = 'padding:10px 0;border-bottom:1px solid var(--border);';
+
+                if (needsSerial) {
+                    row.innerHTML = '<div style="font-weight:600;margin-bottom:6px;">' + htmlEscape(p.model) + '</div>'
+                        + '<div id="bsm_serials_' + id + '"></div>'
+                        + '<button type="button" class="btn btn-secondary btn-sm" onclick="addSerialRow(\'bsm_serials_' + id + '\', \'serials[' + id + '][]\')" style="margin-top:4px;">+ Add Serial Number</button>';
+                } else {
+                    row.innerHTML = '<label style="font-weight:600;">' + htmlEscape(p.model) + '</label>'
+                        + '<input type="number" name="quantities[' + id + ']" min="1" step="1" placeholder="Quantity">';
+                }
+
+                container.appendChild(row);
+                if (needsSerial) {
+                    addSerialRow('bsm_serials_' + id, 'serials[' + id + '][]');
+                }
+            });
+
+            document.getElementById('bulkStockModal').classList.add('open');
         }
 
         function toggleAllProducts(source) {
@@ -602,6 +727,7 @@ require __DIR__ . '/../partials/header.php';
                 document.getElementById('addProductModal')?.classList.remove('open');
                 document.getElementById('editProductModal')?.classList.remove('open');
                 document.getElementById('stockModal')?.classList.remove('open');
+                document.getElementById('bulkStockModal')?.classList.remove('open');
             }
         });
         </script>

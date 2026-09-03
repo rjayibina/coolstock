@@ -3,13 +3,15 @@ require_once __DIR__ . '/../Config/Database.php';
 
 /**
  * Transaction.php (Model)
- * Every row is an activity-log entry: Item Request, Borrow, Return, or
- * (as of migration_add_stock_by_location.sql) Stock In / Stock Out. The
- * first three never touch stock. Stock In/Out do - they're the only
- * types with a location_id, and creating one is paired with an
- * ItemStock::adjust() call by the controller to keep that location's
- * quantity in sync (this model itself has no stock side effects; see
- * TransactionController::create()).
+ * Every row is an activity-log entry: Item Request, Borrow, Return, Stock
+ * In / Stock Out (migration_add_stock_by_location.sql), or Delivery /
+ * Transfer (migration_add_delivery_transfer.sql). Item Request/Borrow/
+ * Return never touch stock. The other four do - they're the only types
+ * with a location_id (Transfer also uses to_location_id), and creating
+ * one is paired with ItemStock::adjust() call(s) by the owning controller
+ * to keep those locations' quantities in sync (this model itself has no
+ * stock side effects; see TransactionController::create(),
+ * DeliveryController::index(), TransferController::index()).
  *
  * Transactions are treated as an immutable ledger: there is no "update",
  * only create (Item Request additionally supports approve/decline).
@@ -19,23 +21,60 @@ class Transaction
     private PDO $conn;
     private string $table = "transactions";
 
-    public const TYPES = ['item_request', 'borrow', 'return', 'stock_in', 'stock_out'];
+    public const TYPES = ['item_request', 'borrow', 'return', 'stock_in', 'stock_out', 'delivery', 'transfer'];
+
+    /** The Product Movement "Remarks" filter dropdown's option list - a
+     *  deliberately smaller set than TYPES. 'stock_in' here also matches
+     *  'delivery' rows (see buildFilterClause()) since they're presented
+     *  as one "Stock In" concept. Item Request/Borrow/Return aren't
+     *  offered as filters - that workflow is on pause for now and there's
+     *  no seed/demo data of those types anymore (TYPES itself is
+     *  untouched though, so historical rows of those types, if any exist,
+     *  still display correctly - they're just not filterable from here). */
+    public const MOVEMENT_FILTERS = [
+        'stock_in' => 'Stock In',
+        'stock_out' => 'Stock Out',
+        'transfer' => 'Transfer',
+    ];
 
     public ?int $transaction_id = null;
     public ?int $item_id = null;
-    // Which location a Stock In/Out happened at. Always null for Item
-    // Request/Borrow/Return.
+    // Which location a Stock In/Out/Delivery happened at, or the FROM
+    // location for a Transfer. Always null for Item Request/Borrow/Return.
     public ?int $location_id = null;
+    // The TO location for a Transfer only. Null for every other type.
+    public ?int $to_location_id = null;
     public ?string $transaction_type = null;
+    // 'DO-000001', 'TR-000001', etc. - shared by every row written in one
+    // Delivery/Transfer submission (see nextReferenceNumber()). Null for
+    // every other transaction type - see
+    // migration_add_transaction_reference_number.sql.
+    public ?string $reference_number = null;
+    // True only for a Delivery line whose product didn't exist in the
+    // catalog yet and was created on the spot via "Add Product Manually"
+    // (see DeliveryController::createManualProduct()). Powers the "New"
+    // badge on the Product Movement batch modal. False for everything
+    // else, including a Delivery of an existing catalog product.
+    public bool $manually_added = false;
     public ?int $quantity = null;
+    // Which unit's serial number this row logs, for a Stock Out on a
+    // product whose item type requires one (see
+    // migration_transaction_serial_number.sql). One serial per row - a
+    // multi-unit serialized Stock Out is logged as several quantity=1 rows,
+    // one per serial, rather than packing multiple serials into one row.
+    // Null for Stock In, non-serialized Stock Out, and every other type.
+    public ?string $serial_number = null;
     // The date the movement actually happened (defaults to today if
     // not supplied). Separate from created_at, which is just the audit
     // timestamp of when the row was logged. See migration_transaction_date.sql.
     public ?string $transaction_date = null;
     // TODO: once the User Access and Roles Module exists, replace this free-text
     // field with a technician_id FK into a users/technicians table. Doubles as
-    // "Received By" (Stock In) / "Released By" (Stock Out) in the UI, same column.
+    // "Received By" (Stock In/Delivery) / "Released By" (Stock Out) / "Moved By"
+    // (Transfer) in the UI, same column.
     public ?string $technician_name = null;
+    // Free-text supplier name, Delivery only. Null for every other type.
+    public ?string $supplier_name = null;
     public ?string $notes = null;
     // 'manual' = logged from the Transactions page or a product's Stock In/Out
     // form. 'auto' is historical only - no code path sets it anymore.
@@ -59,8 +98,62 @@ class Transaction
             'return' => 'Return',
             'stock_in' => 'Stock In',
             'stock_out' => 'Stock Out',
+            'delivery' => 'Delivery',
+            'transfer' => 'Transfer',
             default => ucfirst($type),
         };
+    }
+
+    /** Same as typeLabel(), but for the Product Movement page specifically:
+     *  a Delivery is stock arriving, so it's labeled "Stock In" there even
+     *  though the underlying transaction_type/badge class stay 'delivery'
+     *  (Dashboard and everywhere else still say "Delivery"). */
+    public static function movementLabel(string $type): string
+    {
+        return $type === 'delivery' ? 'Stock In' : self::typeLabel($type);
+    }
+
+    /** Next sequential reference number for a Delivery ('DO') or Transfer
+     *  ('TR') submission, e.g. 'DO-000001' then 'DO-000002'. Looks at the
+     *  highest existing number for that prefix and adds one - every row in
+     *  one submission shares the value this returns (see
+     *  DeliveryController::index() / TransferController::index()). */
+    public function nextReferenceNumber(string $prefix): string
+    {
+        $query = "SELECT reference_number FROM {$this->table}
+                  WHERE reference_number LIKE :pattern
+                  ORDER BY CAST(SUBSTRING(reference_number, :offset) AS UNSIGNED) DESC
+                  LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':pattern', $prefix . '-%');
+        $stmt->bindValue(':offset', strlen($prefix) + 2, PDO::PARAM_INT);
+        $stmt->execute();
+        $last = $stmt->fetch();
+
+        $next = 1;
+        if ($last && preg_match('/-(\d+)$/', $last['reference_number'], $m)) {
+            $next = (int) $m[1] + 1;
+        }
+
+        return $prefix . '-' . str_pad((string) $next, 6, '0', STR_PAD_LEFT);
+    }
+
+    /** READ - every line item sharing one Delivery/Transfer reference
+     *  number, joined the same way readAll() is - powers the Product
+     *  Movement "view products in this order/transfer" modal. */
+    public function readByReferenceNumber(string $referenceNumber): array
+    {
+        $query = "SELECT t.*, i.model, l.location_name, tl.location_name AS to_location_name
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  LEFT JOIN locations l ON t.location_id = l.location_id
+                  LEFT JOIN locations tl ON t.to_location_id = tl.location_id
+                  WHERE t.reference_number = :reference_number
+                  ORDER BY i.model ASC";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':reference_number', $referenceNumber);
+        $stmt->execute();
+        return $stmt->fetchAll();
     }
 
     /** CREATE - insert a new transaction record */
@@ -70,9 +163,9 @@ class Transaction
         $this->transaction_date = $this->transaction_date ?: date('Y-m-d');
 
         $query = "INSERT INTO {$this->table}
-                    (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status)
+                    (item_id, location_id, to_location_id, transaction_type, reference_number, manually_added, quantity, serial_number, transaction_date, technician_name, supplier_name, notes, source, status)
                   VALUES
-                    (:item_id, :location_id, :transaction_type, :quantity, :transaction_date, :technician_name, :notes, :source, :status)";
+                    (:item_id, :location_id, :to_location_id, :transaction_type, :reference_number, :manually_added, :quantity, :serial_number, :transaction_date, :technician_name, :supplier_name, :notes, :source, :status)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
@@ -81,34 +174,31 @@ class Transaction
         } else {
             $stmt->bindValue(':location_id', $this->location_id, PDO::PARAM_INT);
         }
+        if ($this->to_location_id === null) {
+            $stmt->bindValue(':to_location_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':to_location_id', $this->to_location_id, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':transaction_type', $this->transaction_type);
+        if ($this->reference_number === null) {
+            $stmt->bindValue(':reference_number', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':reference_number', $this->reference_number);
+        }
+        $stmt->bindValue(':manually_added', $this->manually_added ? 1 : 0, PDO::PARAM_INT);
         $stmt->bindParam(':quantity', $this->quantity, PDO::PARAM_INT);
+        if ($this->serial_number === null) {
+            $stmt->bindValue(':serial_number', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':serial_number', $this->serial_number);
+        }
         $stmt->bindParam(':transaction_date', $this->transaction_date);
         $stmt->bindParam(':technician_name', $this->technician_name);
+        $stmt->bindParam(':supplier_name', $this->supplier_name);
         $stmt->bindParam(':notes', $this->notes);
         $stmt->bindParam(':source', $this->source);
         $stmt->bindParam(':status', $this->status);
 
-        return $stmt->execute();
-    }
-
-    /** Marks a pending Item Request as completed (called when it's approved) */
-    public function markCompleted(int $id): bool
-    {
-        $query = "UPDATE {$this->table} SET status = 'completed' WHERE transaction_id = :id";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-        return $stmt->execute();
-    }
-
-    /** Marks a pending Item Request as declined (called when warehouse staff reject it).
-     *  Stock was never deducted for a pending request, so declining doesn't touch it either -
-     *  the row just stays as a record of what was asked for and refused. */
-    public function markDeclined(int $id): bool
-    {
-        $query = "UPDATE {$this->table} SET status = 'declined' WHERE transaction_id = :id";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
     }
 
@@ -121,22 +211,112 @@ class Transaction
         'product_desc' => 'i.model DESC',
     ];
 
-    /** READ - all transactions, joined with the item's model (the item's
-     *  de-facto display name - see InventoryItem.php) and, for Stock In/Out
-     *  rows, the location the movement happened at.
-     *  $itemId / $type / $search / $dateFrom / $dateTo optionally filter the results.
-     *  $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first).
-     *  $limit/$offset optionally page the results (pass both, or leave both null for everything). */
-    public function readAll(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    /** Shared WHERE-clause builder for countGroups()/readGrouped().
+     *  $tableAlias/$itemAlias let those two reuse this against a
+     *  differently-aliased subquery without colliding with the outer
+     *  query's own 't'/'i' aliases.
+     *
+     *  $type = 'stock_in' matches BOTH 'stock_in' and 'delivery' rows -
+     *  Product Movement treats them as one "Stock In" concept (a Delivery
+     *  is stock arriving too, just with an order number and supplier
+     *  attached - see movementLabel()), so the filter and the display
+     *  agree with each other instead of "Stock In" in the dropdown
+     *  silently excluding Delivery rows. Every other $type still matches
+     *  exactly one transaction_type. */
+    private function buildFilterClause(?int $itemId, ?string $type, ?string $search, ?string $dateFrom = null, ?string $dateTo = null, string $tableAlias = 't', string $itemAlias = 'i'): array
+    {
+        $where = "1=1";
+        $params = [];
+
+        if ($itemId) {
+            $where .= " AND {$tableAlias}.item_id = :item_id";
+            $params[':item_id'] = $itemId;
+        }
+        if ($type === 'stock_in') {
+            $where .= " AND {$tableAlias}.transaction_type IN ('stock_in', 'delivery')";
+        } elseif ($type && in_array($type, self::TYPES, true)) {
+            $where .= " AND {$tableAlias}.transaction_type = :type";
+            $params[':type'] = $type;
+        }
+        if ($search !== null && trim($search) !== '') {
+            $where .= " AND ({$itemAlias}.model LIKE :search OR {$tableAlias}.technician_name LIKE :search OR {$tableAlias}.notes LIKE :search)";
+            $params[':search'] = '%' . trim($search) . '%';
+        }
+        if ($dateFrom !== null && $dateFrom !== '') {
+            $where .= " AND DATE({$tableAlias}.created_at) >= :date_from";
+            $params[':date_from'] = $dateFrom;
+        }
+        if ($dateTo !== null && $dateTo !== '') {
+            $where .= " AND DATE({$tableAlias}.created_at) <= :date_to";
+            $params[':date_to'] = $dateTo;
+        }
+
+        return [$where, $params];
+    }
+
+    /** Count of DISTINCT order/transfer groups matching the same filters as
+     *  readGrouped() - for pagination on the consolidated Product Movement
+     *  list. See readGrouped() for what a "group" is. */
+    public function countGroups(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null): int
     {
         [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo);
+
+        $query = "SELECT COUNT(*) AS total FROM (
+                      SELECT COALESCE(t.reference_number, CONCAT('txn-', t.transaction_id)) AS grouping_key
+                      FROM {$this->table} t
+                      LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                      WHERE {$where}
+                      GROUP BY grouping_key
+                  ) g";
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** Consolidated Product Movement listing: a Delivery/Transfer's several
+     *  product lines (one per item, sharing a reference_number - see
+     *  DeliveryController/TransferController) collapse into ONE row here -
+     *  its earliest-added line item, plus line_count (how many products
+     *  were in that order/transfer) and total_quantity (the sum of every
+     *  line's quantity, not just the representative line's own - shown in
+     *  the row-detail modal so a consolidated row doesn't look like it only
+     *  moved a fraction of what the order actually contained). The batch
+     *  modal (TransactionController::batch()) is where every line actually
+     *  gets listed. Every other transaction type has no reference_number,
+     *  so it's its own group of one - completely unaffected (line_count = 1,
+     *  total_quantity = its own quantity).
+     *
+     *  Filters apply INSIDE the grouping subquery, not after, so a filter
+     *  that only matches one line of a multi-product order (e.g. item_id)
+     *  still finds that order and correctly picks the matching line as
+     *  the representative - not silently dropping the whole group because
+     *  the group's usual first line doesn't happen to match.
+     *
+     *  Same $itemId/$type/$search/$dateFrom/$dateTo/$sort/$limit/$offset
+     *  contract as readAll(). */
+    public function readGrouped(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    {
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo, 't2', 'i2');
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
 
-        $query = "SELECT t.*, i.model, l.location_name
+        $query = "SELECT t.*, i.model, l.location_name, tl.location_name AS to_location_name, g.line_count, g.total_quantity
                   FROM {$this->table} t
+                  INNER JOIN (
+                      SELECT COALESCE(t2.reference_number, CONCAT('txn-', t2.transaction_id)) AS grouping_key,
+                             MIN(t2.transaction_id) AS representative_id,
+                             COUNT(*) AS line_count,
+                             SUM(t2.quantity) AS total_quantity
+                      FROM {$this->table} t2
+                      LEFT JOIN inventory_items i2 ON t2.item_id = i2.item_id
+                      WHERE {$where}
+                      GROUP BY grouping_key
+                  ) g ON t.transaction_id = g.representative_id
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
                   LEFT JOIN locations l ON t.location_id = l.location_id
-                  WHERE {$where}
+                  LEFT JOIN locations tl ON t.to_location_id = tl.location_id
                   ORDER BY {$orderBy}";
 
         if ($limit !== null && $offset !== null) {
@@ -155,77 +335,20 @@ class Transaction
         return $stmt->fetchAll();
     }
 
-    /** Count of transactions matching the same filters as readAll() - for pagination */
-    public function countFiltered(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null): int
-    {
-        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo);
-
-        $query = "SELECT COUNT(*) AS total
-                  FROM {$this->table} t
-                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
-                  WHERE {$where}";
-
-        $stmt = $this->conn->prepare($query);
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value);
-        }
-        $stmt->execute();
-        return (int) $stmt->fetch()['total'];
-    }
-
-    /** Shared WHERE-clause builder for readAll() and countFiltered() so the two never drift apart */
-    private function buildFilterClause(?int $itemId, ?string $type, ?string $search, ?string $dateFrom = null, ?string $dateTo = null): array
-    {
-        $where = "1=1";
-        $params = [];
-
-        if ($itemId) {
-            $where .= " AND t.item_id = :item_id";
-            $params[':item_id'] = $itemId;
-        }
-        if ($type && in_array($type, self::TYPES, true)) {
-            $where .= " AND t.transaction_type = :type";
-            $params[':type'] = $type;
-        }
-        if ($search !== null && trim($search) !== '') {
-            $where .= " AND (i.model LIKE :search OR t.technician_name LIKE :search OR t.notes LIKE :search)";
-            $params[':search'] = '%' . trim($search) . '%';
-        }
-        if ($dateFrom !== null && $dateFrom !== '') {
-            $where .= " AND DATE(t.created_at) >= :date_from";
-            $params[':date_from'] = $dateFrom;
-        }
-        if ($dateTo !== null && $dateTo !== '') {
-            $where .= " AND DATE(t.created_at) <= :date_to";
-            $params[':date_to'] = $dateTo;
-        }
-
-        return [$where, $params];
-    }
-
     /** READ - most recent N transactions, for the Dashboard */
     public function readRecent(int $limit = 5): array
     {
-        $query = "SELECT t.*, i.model, l.location_name
+        $query = "SELECT t.*, i.model, l.location_name, tl.location_name AS to_location_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
                   LEFT JOIN locations l ON t.location_id = l.location_id
+                  LEFT JOIN locations tl ON t.to_location_id = tl.location_id
                   ORDER BY t.transaction_id DESC
                   LIMIT :limit";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();
-    }
-
-    /** READ - single transaction by id (used before reversing/deleting) */
-    public function readOne(int $id): array|false
-    {
-        $query = "SELECT * FROM {$this->table} WHERE transaction_id = :id LIMIT 1";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-        $stmt->execute();
-        return $stmt->fetch();
     }
 
     /** Count of all transactions - used on the Dashboard */
