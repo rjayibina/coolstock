@@ -112,7 +112,7 @@ require __DIR__ . '/../partials/header.php';
         <?php elseif ($status === 'stock_out_error'): ?>
             <div class="alert alert-warning"><?= htmlspecialchars($_GET['message'] ?? 'Something went wrong.') ?></div>
         <?php elseif ($status === 'bulk_stock_out'): ?>
-            <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> stocked out.</div>
+            <div class="alert alert-success"><?= $bulkCount ?> product<?= $bulkCount === 1 ? '' : 's' ?> stocked out<?= !empty($_GET['reference']) ? ' — Stock Out # ' . htmlspecialchars($_GET['reference']) : '' ?>.</div>
         <?php elseif ($status === 'bulk_stock_out_error'): ?>
             <div class="alert alert-warning"><?= htmlspecialchars($_GET['message'] ?? 'Something went wrong.') ?></div>
         <?php endif; ?>
@@ -161,7 +161,7 @@ require __DIR__ . '/../partials/header.php';
                             </tr>
                         <?php else: ?>
                             <?php foreach ($items as $it): ?>
-                                <tr class="product-row" onclick="handleProductRowClick(event, <?= $it['item_id'] ?>)">
+                                <tr class="product-row<?= (int) $it['total_quantity'] === 0 ? ' out-of-stock' : '' ?>" onclick="handleProductRowClick(event, <?= $it['item_id'] ?>)">
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $it['item_id'] ?>" class="row-check product-check" onchange="updateBulkBar()"></td>
                                     <td class="cell-id"><?= (int) $it['item_id'] ?></td>
                                     <td><strong><?= htmlspecialchars($it['model']) ?></strong></td>
@@ -276,7 +276,7 @@ require __DIR__ . '/../partials/header.php';
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="ap_quantity">Quantity</label>
+                        <label for="ap_quantity">Quantity <span style="font-weight:400;color:var(--text-muted);">at that location</span></label>
                         <input type="number" id="ap_quantity" name="quantity" min="0" step="1" placeholder="0" value="0" required>
 
                         <div id="ap_specs_section">
@@ -396,6 +396,23 @@ require __DIR__ . '/../partials/header.php';
                         <input type="hidden" name="transaction_type" value="stock_out">
                         <input type="hidden" name="redirect_to" value="products">
 
+                        <label for="sm_location_id">Location</label>
+                        <select id="sm_location_id" name="location_id" required>
+                            <option value="" disabled selected>Select a location</option>
+                            <?php foreach ($locations as $loc): ?>
+                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <label for="sm_technician_name">Released By</label>
+                        <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
+
+                        <label for="sm_transaction_date">Stock Date</label>
+                        <input type="date" id="sm_transaction_date" name="transaction_date" required>
+
+                        <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+
                         <div id="sm_quantity_group">
                             <label for="sm_quantity">Quantity</label>
                             <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity">
@@ -406,23 +423,6 @@ require __DIR__ . '/../partials/header.php';
                             <div id="sm_serial_rows"></div>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="addSerialRow('sm_serial_rows')" style="margin-top:6px;">+ Add Serial Number</button>
                         </div>
-
-                        <label for="sm_location_id">Location</label>
-                        <select id="sm_location_id" name="location_id" required>
-                            <option value="" disabled selected>Select a location</option>
-                            <?php foreach ($locations as $loc): ?>
-                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-
-                        <label for="sm_transaction_date">Stock Date</label>
-                        <input type="date" id="sm_transaction_date" name="transaction_date" required>
-
-                        <label for="sm_technician_name">Released By</label>
-                        <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
-
-                        <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-danger-solid">Remove Stock</button>
@@ -449,17 +449,17 @@ require __DIR__ . '/../partials/header.php';
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="bsm_transaction_date">Stock Date</label>
-                        <input type="date" id="bsm_transaction_date" name="transaction_date" required>
-
                         <label for="bsm_technician_name">Released By</label>
                         <input type="text" id="bsm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
 
-                        <label>Products</label>
-                        <div id="bsm_product_rows" class="table-card" style="padding:14px;margin-bottom:16px;"></div>
+                        <label for="bsm_transaction_date">Stock Date</label>
+                        <input type="date" id="bsm_transaction_date" name="transaction_date" required>
 
                         <label for="bsm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
                         <textarea id="bsm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+
+                        <label>Products</label>
+                        <div id="bsm_product_rows" class="table-card" style="padding:14px;margin-bottom:16px;"></div>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-danger-solid">Remove Stock</button>

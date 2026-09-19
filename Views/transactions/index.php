@@ -114,17 +114,15 @@ require __DIR__ . '/../partials/header.php';
                         <tr>
                             <th>Product</th>
                             <th>Remarks</th>
-                            <th>Order/Transfer #</th>
-                            <th>Serial #</th>
+                            <th>Reference #</th>
                             <th>Quantity</th>
-                            <th>Notes</th>
                             <th>Date</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($transactions)): ?>
                             <tr class="empty-row">
-                                <td colspan="7">No transactions match these filters.</td>
+                                <td colspan="5">No transactions match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($transactions as $t): ?>
@@ -143,9 +141,7 @@ require __DIR__ . '/../partials/header.php';
                                             &mdash;
                                         <?php endif; ?>
                                     </td>
-                                    <td class="cell-muted"><?= htmlspecialchars($t['serial_number'] ?? '—') ?></td>
                                     <td class="cell-id"><?= (int) ($t['total_quantity'] ?? $t['quantity']) ?></td>
-                                    <td class="cell-muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><?= htmlspecialchars($t['notes'] ?: '—') ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars(format_datetime($t['created_at'])) ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -215,8 +211,8 @@ require __DIR__ . '/../partials/header.php';
                         <thead>
                             <tr style="text-align:left;border-bottom:1px solid var(--border);">
                                 <th style="padding:6px 0;">Product</th>
+                                <th style="padding:6px 0;" id="bm-serial-header">Serial #</th>
                                 <th style="padding:6px 0;">Qty</th>
-                                <th style="padding:6px 0;" id="bm-location-header">Location</th>
                             </tr>
                         </thead>
                         <tbody id="bm-rows">
@@ -234,42 +230,90 @@ require __DIR__ . '/../partials/header.php';
         const transactionsData = <?= json_encode(array_column($transactions, null, 'transaction_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
         // Fetches every line item sharing $referenceNumber (a Delivery
-        // order # or Transfer #, see TransactionController::batch()) and
-        // lists them in a modal - so a Delivery/Transfer that spans several
-        // products isn't only viewable one row at a time.
+        // order #, Transfer #, or bulk Stock Out # - see
+        // TransactionController::batch()) and lists them in a modal - so a
+        // batch that spans several products isn't only viewable one row at
+        // a time. Every line in one batch always shares the same location
+        // (or the same from/to pair, for a Transfer) by construction - see
+        // DeliveryController/TransferController/TransactionController::
+        // bulkStockOut() - so that's shown once in the title instead of
+        // repeated on every row.
         function openBatchModal(referenceNumber) {
             const isTransfer = referenceNumber.startsWith('TR-');
-            document.getElementById('bm-title').textContent = isTransfer ? 'Transferred Products' : 'Delivered Products';
+            const isStockOut = referenceNumber.startsWith('SO-');
             document.getElementById('bm-subtitle').textContent = referenceNumber;
-            document.getElementById('bm-location-header').textContent = isTransfer ? 'From \u2192 To' : 'Location';
 
             const rows = document.getElementById('bm-rows');
-            rows.innerHTML = '<tr><td colspan="4" style="padding:10px 0;color:var(--text-muted);">Loading...</td></tr>';
+            rows.innerHTML = '<tr><td colspan="3" style="padding:10px 0;color:var(--text-muted);">Loading...</td></tr>';
             document.getElementById('batchModal').classList.add('open');
 
             fetch('index.php?module=transactions&action=batch&reference_number=' + encodeURIComponent(referenceNumber))
                 .then(res => res.json())
                 .then(lines => {
                     if (!Array.isArray(lines) || lines.length === 0) {
+                        document.getElementById('bm-title').textContent = isTransfer ? 'Transferred Products' : isStockOut ? 'Stocked Out Products' : 'Delivered Products';
                         rows.innerHTML = '<tr><td colspan="3" style="padding:10px 0;color:var(--text-muted);">No line items found.</td></tr>';
                         return;
                     }
-                    rows.innerHTML = lines.map(line => {
-                        const location = isTransfer
-                            ? htmlEscapeTM(line.location_name || '\u2014') + ' \u2192 ' + htmlEscapeTM(line.to_location_name || '\u2014')
-                            : htmlEscapeTM(line.location_name || '\u2014');
-                        const newBadge = line.manually_added
+
+                    const first = lines[0];
+                    if (isTransfer) {
+                        document.getElementById('bm-title').textContent =
+                            'Transferred Products (' + (first.location_name || '\u2014') + ' \u2192 ' + (first.to_location_name || '\u2014') + ')';
+                    } else if (isStockOut) {
+                        document.getElementById('bm-title').textContent = 'Stocked Out Products from ' + (first.location_name || '\u2014');
+                    } else {
+                        document.getElementById('bm-title').textContent = 'Delivered Products to ' + (first.location_name || '\u2014');
+                    }
+
+                    // Serial numbers only ever get captured on a Stock Out
+                    // (see item_types.requires_serial) - the column is
+                    // pointless clutter on a Delivery/Transfer batch, which
+                    // never has any, so it's hidden entirely there.
+                    document.getElementById('bm-serial-header').style.display = isStockOut ? '' : 'none';
+
+                    // A serialized batch (e.g. 3 units of the same Asset
+                    // stocked out with 3 different serial numbers) comes
+                    // back as one line per unit - see Transaction::create()/
+                    // TransactionController::createSerializedStockOut().
+                    // Group those back into one row per product here: sum
+                    // the quantity, collect every serial number together.
+                    const groups = new Map();
+                    lines.forEach(line => {
+                        const key = line.item_id;
+                        if (!groups.has(key)) {
+                            groups.set(key, {
+                                model: line.model,
+                                quantity: 0,
+                                serials: [],
+                                manually_added: false,
+                            });
+                        }
+                        const g = groups.get(key);
+                        g.quantity += line.quantity;
+                        if (line.serial_number) g.serials.push(line.serial_number);
+                        if (line.manually_added) g.manually_added = true;
+                    });
+
+                    rows.innerHTML = Array.from(groups.values()).map(g => {
+                        const newBadge = g.manually_added
                             ? ' <span class="badge" style="background:var(--success-bg);color:var(--success);">New</span>'
                             : '';
+                        // One serial per line, not comma-separated - escape
+                        // each individually before joining with <br>, since
+                        // htmlEscapeTM expects one plain string, not a list.
+                        const serialCell = isStockOut
+                            ? '<td style="padding:6px 0;">' + (g.serials.length > 0 ? g.serials.map(htmlEscapeTM).join('<br>') : '\u2014') + '</td>'
+                            : '';
                         return '<tr style="border-bottom:1px solid var(--border);">'
-                            + '<td style="padding:6px 0;">' + htmlEscapeTM(line.model) + newBadge + '</td>'
-                            + '<td style="padding:6px 0;">' + line.quantity + '</td>'
-                            + '<td style="padding:6px 0;">' + location + '</td>'
+                            + '<td style="padding:6px 0;">' + htmlEscapeTM(g.model) + newBadge + '</td>'
+                            + serialCell
+                            + '<td style="padding:6px 0;">' + g.quantity + '</td>'
                             + '</tr>';
                     }).join('');
                 })
                 .catch(() => {
-                    rows.innerHTML = '<tr><td colspan="3" style="padding:10px 0;color:var(--danger);">Could not load this order/transfer.</td></tr>';
+                    rows.innerHTML = '<tr><td colspan="3" style="padding:10px 0;color:var(--danger);">Could not load this batch.</td></tr>';
                 });
         }
 

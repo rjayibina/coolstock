@@ -4,17 +4,19 @@ require_once __DIR__ . '/../Config/Database.php';
 /**
  * Transaction.php (Model)
  * Every row is an activity-log entry: Item Request, Borrow, Return, Stock
- * In / Stock Out (migration_add_stock_by_location.sql), or Delivery /
- * Transfer (migration_add_delivery_transfer.sql). Item Request/Borrow/
- * Return never touch stock. The other four do - they're the only types
- * with a location_id (Transfer also uses to_location_id), and creating
- * one is paired with ItemStock::adjust() call(s) by the owning controller
- * to keep those locations' quantities in sync (this model itself has no
- * stock side effects; see TransactionController::create(),
- * DeliveryController::index(), TransferController::index()).
+ * In / Stock Out, Delivery, or Transfer. Item Request never touches
+ * stock (it's just a request, with no location decided yet) - every
+ * other type does, and creating one is paired with ItemStock::adjust()
+ * call(s) by the owning controller to keep those locations' quantities
+ * in sync (this model itself has no stock side effects; see
+ * TransactionController::create(), DeliveryController::index(),
+ * TransferController::index(), ItemRequestController).
  *
  * Transactions are treated as an immutable ledger: there is no "update",
- * only create (Item Request additionally supports approve/decline).
+ * only create - except for the status column, which the Item Request and
+ * Return Monitoring Module flips in place on an existing row (approve/
+ * decline an Item Request; complete a Borrow once fully returned) via
+ * updateStatus() rather than ever rewriting a row's other fields.
  */
 class Transaction
 {
@@ -27,10 +29,9 @@ class Transaction
      *  deliberately smaller set than TYPES. 'stock_in' here also matches
      *  'delivery' rows (see buildFilterClause()) since they're presented
      *  as one "Stock In" concept. Item Request/Borrow/Return aren't
-     *  offered as filters - that workflow is on pause for now and there's
-     *  no seed/demo data of those types anymore (TYPES itself is
-     *  untouched though, so historical rows of those types, if any exist,
-     *  still display correctly - they're just not filterable from here). */
+     *  offered as filters here - that workflow has its own page now
+     *  (see ItemRequestController, module=requests) with its own
+     *  status-based filtering instead of Product Movement's. */
     public const MOVEMENT_FILTERS = [
         'stock_in' => 'Stock In',
         'stock_out' => 'Stock Out',
@@ -39,8 +40,10 @@ class Transaction
 
     public ?int $transaction_id = null;
     public ?int $item_id = null;
-    // Which location a Stock In/Out/Delivery happened at, or the FROM
-    // location for a Transfer. Always null for Item Request/Borrow/Return.
+    // Which location a Stock In/Out/Delivery/Borrow/Return happened at,
+    // or the FROM location for a Transfer. Null for Item Request - which
+    // location fulfills it is decided by Warehouse Staff at approval
+    // time, not by the technician requesting it (see ItemRequestController).
     public ?int $location_id = null;
     // The TO location for a Transfer only. Null for every other type.
     public ?int $to_location_id = null;
@@ -79,11 +82,18 @@ class Transaction
     // 'manual' = logged from the Transactions page or a product's Stock In/Out
     // form. 'auto' is historical only - no code path sets it anymore.
     public string $source = 'manual';
-    // 'pending' = an Item Request that hasn't been approved yet. 'completed'
-    // = everything else, and approved requests. 'declined' = a refused
-    // request. Only Stock In/Out ever move a product's stock level (via
-    // ItemStock::adjust() in the controller) - the other three never do.
+    // 'pending' = an Item Request awaiting a Warehouse Staff decision.
+    // 'active' = an approved request's Borrow row while still checked
+    // out. 'completed' = a Stock In/Out/Delivery/Transfer row, an
+    // approved Item Request, or a Borrow that's been fully returned.
+    // 'declined' = a refused request, kept for the audit trail.
     public string $status = 'completed';
+    // Self-referencing: on a 'borrow' row, the Item Request it fulfills;
+    // on a 'return' row, the Borrow it returns against. Null otherwise.
+    public ?int $related_transaction_id = null;
+    // 'return' rows only: how many of the returned units came back
+    // damaged and were therefore NOT restocked. Null otherwise.
+    public ?int $damaged_quantity = null;
 
     public function __construct()
     {
@@ -163,9 +173,9 @@ class Transaction
         $this->transaction_date = $this->transaction_date ?: date('Y-m-d');
 
         $query = "INSERT INTO {$this->table}
-                    (item_id, location_id, to_location_id, transaction_type, reference_number, manually_added, quantity, serial_number, transaction_date, technician_name, supplier_name, notes, source, status)
+                    (item_id, location_id, to_location_id, transaction_type, reference_number, manually_added, quantity, serial_number, transaction_date, technician_name, supplier_name, notes, source, status, related_transaction_id, damaged_quantity)
                   VALUES
-                    (:item_id, :location_id, :to_location_id, :transaction_type, :reference_number, :manually_added, :quantity, :serial_number, :transaction_date, :technician_name, :supplier_name, :notes, :source, :status)";
+                    (:item_id, :location_id, :to_location_id, :transaction_type, :reference_number, :manually_added, :quantity, :serial_number, :transaction_date, :technician_name, :supplier_name, :notes, :source, :status, :related_transaction_id, :damaged_quantity)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
@@ -198,6 +208,16 @@ class Transaction
         $stmt->bindParam(':notes', $this->notes);
         $stmt->bindParam(':source', $this->source);
         $stmt->bindParam(':status', $this->status);
+        if ($this->related_transaction_id === null) {
+            $stmt->bindValue(':related_transaction_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':related_transaction_id', $this->related_transaction_id, PDO::PARAM_INT);
+        }
+        if ($this->damaged_quantity === null) {
+            $stmt->bindValue(':damaged_quantity', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':damaged_quantity', $this->damaged_quantity, PDO::PARAM_INT);
+        }
 
         return $stmt->execute();
     }
@@ -372,5 +392,240 @@ class Transaction
             $counts[$row['transaction_type']] = (int) $row['total'];
         }
         return $counts;
+    }
+
+    /** Usage Report data source: total units stocked OUT per product
+     *  within an optional date range (filtered on transaction_date, the
+     *  date the movement actually happened - not created_at, since a
+     *  report is asking "how much moved in this period", not "how much
+     *  was logged in this period"). "Usage" here means stock_out only,
+     *  same as predictedStockouts()'s own history window - Borrow rows
+     *  are a separate concept (still checked out, not consumed) and are
+     *  intentionally excluded. Ordered by usage descending. */
+    public function usageByItem(?string $dateFrom = null, ?string $dateTo = null): array
+    {
+        $where = "t.transaction_type = 'stock_out'";
+        $params = [];
+        if ($dateFrom !== null && $dateFrom !== '') {
+            $where .= " AND t.transaction_date >= :date_from";
+            $params[':date_from'] = $dateFrom;
+        }
+        if ($dateTo !== null && $dateTo !== '') {
+            $where .= " AND t.transaction_date <= :date_to";
+            $params[':date_to'] = $dateTo;
+        }
+
+        $query = "SELECT t.item_id, i.model, SUM(t.quantity) AS total_used, COUNT(*) AS movement_count
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  WHERE {$where}
+                  GROUP BY t.item_id, i.model
+                  ORDER BY total_used DESC";
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    /** READ - single transaction by ID, joined with product/location
+     *  names - used by ItemRequestController to re-validate an Item
+     *  Request/Borrow row before acting on it (approve/decline/return). */
+    public function readById(int $id): ?array
+    {
+        $query = "SELECT t.*, i.model, l.location_name
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  LEFT JOIN locations l ON t.location_id = l.location_id
+                  WHERE t.transaction_id = :id
+                  LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /** SQL expression yielding the ORIGINAL REQUESTER's name for a row of
+     *  the given type.
+     *
+     *  technician_name means different things down the request chain: on
+     *  an 'item_request' it's the Technician who asked, but on the
+     *  'borrow' and 'return' rows that follow it's the Warehouse Staff
+     *  who released/received the stock (see ItemRequestController::
+     *  approve()/returnItem()). So "whose request is this?" has to walk
+     *  back up related_transaction_id rather than read the row's own
+     *  technician_name - one hop for a Borrow, two for a Return.
+     *
+     *  Used by BOTH the WHERE clause (scoping a Technician to their own
+     *  rows) and the SELECT list (displaying "Requested By"), so the two
+     *  can never disagree about who owns a row. The outer reference is
+     *  alias-qualified deliberately: an unqualified related_transaction_id
+     *  inside the subquery would resolve against the subquery's own copy
+     *  of the table, not the outer row. */
+    private function requesterNameExpression(string $type, string $alias = 't'): string
+    {
+        return match ($type) {
+            'borrow' => "(SELECT req.technician_name FROM {$this->table} req
+                          WHERE req.transaction_id = {$alias}.related_transaction_id)",
+            'return' => "(SELECT req.technician_name FROM {$this->table} req
+                          WHERE req.transaction_id = (
+                              SELECT b.related_transaction_id FROM {$this->table} b
+                              WHERE b.transaction_id = {$alias}.related_transaction_id
+                          ))",
+            default => "{$alias}.technician_name",
+        };
+    }
+
+    /** Shared WHERE builder for readRequestList()/countRequestList() -
+     *  the Item Request and Return Monitoring Module's own listing, kept
+     *  separate from buildFilterClause() above since it filters by
+     *  status (a concept Product Movement doesn't use) and by requester
+     *  rather than by item/date-range/free-text search.
+     *
+     *  $technicianName scopes to the original REQUESTER, not to whoever's
+     *  name happens to be stamped on the row - see
+     *  requesterNameExpression(). */
+    private function buildRequestFilterClause(string $type, array $statuses, ?string $technicianName, string $alias = 't'): array
+    {
+        $where = "{$alias}.transaction_type = :type";
+        $params = [':type' => $type];
+
+        if (!empty($statuses)) {
+            $placeholders = [];
+            foreach (array_values($statuses) as $i => $status) {
+                $key = ":status{$i}";
+                $placeholders[] = $key;
+                $params[$key] = $status;
+            }
+            $where .= " AND {$alias}.status IN (" . implode(', ', $placeholders) . ")";
+        }
+        if ($technicianName !== null) {
+            $where .= " AND " . $this->requesterNameExpression($type, $alias) . " = :technician_name";
+            $params[':technician_name'] = $technicianName;
+        }
+
+        return [$where, $params];
+    }
+
+    /** Count of Item Request/Borrow/Return rows matching the given type/
+     *  status/requester filters - for pagination on the Item Requests page. */
+    public function countRequestList(string $type, array $statuses = [], ?string $technicianName = null): int
+    {
+        [$where, $params] = $this->buildRequestFilterClause($type, $statuses, $technicianName);
+        $stmt = $this->conn->prepare("SELECT COUNT(*) AS total FROM {$this->table} t WHERE {$where}");
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** READ - Item Request, Borrow or Return rows for the Item Requests
+     *  page (Pending Requests / Active Borrows / History tabs), one flat
+     *  row per line - deliberately not consolidated by reference_number
+     *  like readGrouped(), since each line here can be approved/declined/
+     *  returned independently of any others submitted alongside it.
+     *
+     *  The return_* columns are correlated subqueries over the Return
+     *  rows linked to a Borrow, so one Borrow row carries its whole
+     *  return story - how much came back, how much of that was damaged
+     *  and written off, when the last return happened and what was noted
+     *  about it - without a second round trip per row. All four stay NULL/
+     *  zero for an Item Request row, which has no returns under it.
+     *
+     *  returned_damaged_quantity is named apart from the table's own
+     *  damaged_quantity column on purpose: SELECT t.* already carries
+     *  that one (per-Return-row), and two columns of the same name would
+     *  silently collide in the fetched array. */
+    public function readRequestList(string $type, array $statuses = [], ?string $technicianName = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    {
+        [$where, $params] = $this->buildRequestFilterClause($type, $statuses, $technicianName);
+        $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
+        $requestedBy = $this->requesterNameExpression($type);
+
+        $query = "SELECT t.*, i.model, l.location_name,
+                         (SELECT COALESCE(SUM(r.quantity), 0) FROM {$this->table} r
+                          WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS returned_quantity,
+                         (SELECT COALESCE(SUM(r.damaged_quantity), 0) FROM {$this->table} r
+                          WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS returned_damaged_quantity,
+                         (SELECT MAX(r.transaction_date) FROM {$this->table} r
+                          WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS last_return_date,
+                         (SELECT r.notes FROM {$this->table} r
+                          WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return'
+                          ORDER BY r.transaction_id DESC LIMIT 1) AS last_return_notes,
+                         {$requestedBy} AS requested_by_name
+                  FROM {$this->table} t
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  LEFT JOIN locations l ON t.location_id = l.location_id
+                  WHERE {$where}
+                  ORDER BY {$orderBy}";
+
+        if ($limit !== null && $offset !== null) {
+            $query .= " LIMIT :limit OFFSET :offset";
+        }
+
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        if ($limit !== null && $offset !== null) {
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
+    /** Units still physically out on active Borrows - the borrowed
+     *  quantity minus whatever has already come back against each one, so
+     *  a partially-returned Borrow only counts what's still outstanding.
+     *  Scoped to one requester when $technicianName is given, using the
+     *  same filter builder as the listings so the summary figure and the
+     *  rows underneath it can't disagree. */
+    public function outstandingBorrowedUnits(?string $technicianName = null): int
+    {
+        [$where, $params] = $this->buildRequestFilterClause('borrow', ['active'], $technicianName);
+
+        $query = "SELECT COALESCE(SUM(t.quantity - (
+                      SELECT COALESCE(SUM(r.quantity), 0) FROM {$this->table} r
+                      WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return'
+                  )), 0) AS total
+                  FROM {$this->table} t
+                  WHERE {$where}";
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** Total already returned against a given Borrow row - used to work
+     *  out how much is still outstanding before logging a new (possibly
+     *  partial) return against it. */
+    public function returnedQuantityFor(int $borrowTransactionId): int
+    {
+        $stmt = $this->conn->prepare(
+            "SELECT COALESCE(SUM(quantity), 0) AS total FROM {$this->table}
+             WHERE related_transaction_id = :id AND transaction_type = 'return'"
+        );
+        $stmt->bindValue(':id', $borrowTransactionId, PDO::PARAM_INT);
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** Flips an Item Request/Borrow row's status in place - the one
+     *  documented exception to this table being an immutable ledger
+     *  (approve/decline an Item Request; complete a Borrow once fully
+     *  returned). Every other row type is created once and never touched
+     *  again. */
+    public function updateStatus(int $id, string $status): bool
+    {
+        $stmt = $this->conn->prepare("UPDATE {$this->table} SET status = :status WHERE transaction_id = :id");
+        $stmt->bindValue(':status', $status);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        return $stmt->execute();
     }
 }

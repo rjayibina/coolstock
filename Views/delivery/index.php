@@ -62,51 +62,25 @@ $oldManualProducts = $old['manual_products'] ?? [];
                 <textarea id="notes" name="notes" placeholder="Optional notes about this delivery"><?= htmlspecialchars($old['notes'] ?? '') ?></textarea>
             </div>
 
-            <?php if (!empty($items)): ?>
             <div class="page-header" style="margin-top:22px;">
                 <div class="page-title-group">
                     <h2 class="page-title" style="font-size:16px;">Products Received</h2>
-                    <span class="page-title-count" id="deliveryProductCount">Enter a quantity for each product delivered — leave the rest blank</span>
-                </div>
-                <div class="header-actions">
-                    <div class="search-box">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        <input type="text" id="deliveryProductSearch" placeholder="Search products..." onkeyup="filterDeliveryProducts()">
-                    </div>
+                    <span class="page-title-count">Search the catalog and add each product delivered, with its quantity</span>
                 </div>
             </div>
 
-            <div class="table-card">
-                <table id="deliveryProductTable">
-                    <thead>
-                        <tr>
-                            <th>Model</th>
-                            <th>Category</th>
-                            <th>Brand</th>
-                            <th style="width:140px;">Quantity Received</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($items as $it): ?>
-                            <tr class="catalog-row">
-                                <td><strong><?= htmlspecialchars($it['model']) ?></strong></td>
-                                <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars($it['brand_name'] ?? '—') ?></td>
-                                <td>
-                                    <input type="number" name="quantities[<?= $it['item_id'] ?>]" min="0" step="1" placeholder="0"
-                                           value="<?= htmlspecialchars($oldQuantities[$it['item_id']] ?? '') ?>" style="width:100px;margin-bottom:0;">
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="pagination-bar" id="deliveryPaginationBar">
-                <span id="deliveryPaginationSummary"></span>
-                <div class="pagination-controls" id="deliveryPaginationControls"></div>
+            <?php if (!empty($items)): ?>
+            <div class="search-box" style="position:relative;max-width:420px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="deliveryProductSearch" placeholder="Search products to add..." autocomplete="off"
+                       oninput="renderDeliverySearchResults()" onfocus="renderDeliverySearchResults()">
+                <div id="deliverySearchResults" class="search-results-dropdown" style="display:none;"></div>
             </div>
             <?php endif; ?>
+
+            <div class="table-card" id="deliveryLineItemsCard" style="padding:14px;margin-top:12px;display:none;">
+                <div id="deliveryLineItems"></div>
+            </div>
 
             <div class="page-header" style="margin-top:22px;">
                 <div class="page-title-group">
@@ -128,69 +102,94 @@ $oldManualProducts = $old['manual_products'] ?? [];
         <?php endif; ?>
 
         <script>
-        const DELIVERY_PER_PAGE = 10;
-        let deliveryCurrentPage = 1;
+        // Full catalog, loaded once - Delivery never paginates products
+        // server-side (DeliveryController::index() always reads every
+        // item), so search-as-you-type is just filtering this array
+        // client-side, no round trip needed.
+        const deliveryCatalog = <?= json_encode(array_map(fn($it) => [
+            'item_id' => (int) $it['item_id'],
+            'model' => $it['model'],
+            'category_name' => $it['category_name'] ?? 'Uncategorized',
+            'brand_name' => $it['brand_name'] ?? null,
+        ], $items), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        const deliveryAddedItemIds = new Set();
 
-        function paginateDeliveryProducts() {
-            const table = document.getElementById('deliveryProductTable');
-            if (!table) return;
-            const rows = Array.from(table.querySelectorAll('tbody tr.catalog-row'));
-            const totalPages = Math.max(1, Math.ceil(rows.length / DELIVERY_PER_PAGE));
-            deliveryCurrentPage = Math.min(deliveryCurrentPage, totalPages);
-
-            rows.forEach((row, i) => {
-                const page = Math.floor(i / DELIVERY_PER_PAGE) + 1;
-                row.style.display = (page === deliveryCurrentPage) ? '' : 'none';
-            });
-
-            const start = rows.length === 0 ? 0 : (deliveryCurrentPage - 1) * DELIVERY_PER_PAGE + 1;
-            const end = Math.min(deliveryCurrentPage * DELIVERY_PER_PAGE, rows.length);
-            document.getElementById('deliveryProductCount').textContent =
-                'Showing ' + start + '–' + end + ' of ' + rows.length + ' products — enter a quantity, leave the rest blank';
-            document.getElementById('deliveryPaginationSummary').textContent =
-                rows.length + ' product' + (rows.length === 1 ? '' : 's') + ' total';
-
-            renderDeliveryPaginationControls(totalPages);
-        }
-
-        function renderDeliveryPaginationControls(totalPages) {
-            const controls = document.getElementById('deliveryPaginationControls');
-            if (!controls) return;
-            if (totalPages <= 1) {
-                controls.innerHTML = '';
-                return;
-            }
-            let html = '<a href="#" class="page-btn ' + (deliveryCurrentPage <= 1 ? 'disabled' : '') + '" onclick="event.preventDefault(); goToDeliveryPage(' + (deliveryCurrentPage - 1) + ');">&lsaquo; Prev</a>';
-            for (let p = 1; p <= totalPages; p++) {
-                html += '<a href="#" class="page-btn ' + (p === deliveryCurrentPage ? 'active' : '') + '" onclick="event.preventDefault(); goToDeliveryPage(' + p + ');">' + p + '</a>';
-            }
-            html += '<a href="#" class="page-btn ' + (deliveryCurrentPage >= totalPages ? 'disabled' : '') + '" onclick="event.preventDefault(); goToDeliveryPage(' + (deliveryCurrentPage + 1) + ');">Next &rsaquo;</a>';
-            controls.innerHTML = html;
-        }
-
-        function goToDeliveryPage(p) {
-            deliveryCurrentPage = p;
-            paginateDeliveryProducts();
-        }
-
-        // While searching, pagination is suspended - every matching row is
-        // shown at once regardless of page, same convention Products uses.
-        function filterDeliveryProducts() {
-            const q = document.getElementById('deliveryProductSearch').value.toLowerCase();
-            const rows = document.querySelectorAll('#deliveryProductTable tbody tr.catalog-row');
-            const paginationBar = document.getElementById('deliveryPaginationBar');
+        function renderDeliverySearchResults() {
+            const input = document.getElementById('deliveryProductSearch');
+            const dropdown = document.getElementById('deliverySearchResults');
+            const q = input.value.trim().toLowerCase();
 
             if (q === '') {
-                paginationBar.style.display = '';
-                paginateDeliveryProducts();
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '';
                 return;
             }
 
-            paginationBar.style.display = 'none';
-            rows.forEach(row => {
-                row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-            });
+            const matches = deliveryCatalog
+                .filter(p => !deliveryAddedItemIds.has(p.item_id) && p.model.toLowerCase().includes(q))
+                .slice(0, 8);
+
+            if (matches.length === 0) {
+                dropdown.innerHTML = '<div class="search-result-empty">No matching products</div>';
+                dropdown.style.display = '';
+                return;
+            }
+
+            dropdown.innerHTML = matches.map(p =>
+                '<div class="search-result-item" onclick="addDeliveryLineItem(' + p.item_id + ')">'
+                    + '<strong>' + htmlEscapeDelivery(p.model) + '</strong>'
+                    + '<span class="cell-muted">' + htmlEscapeDelivery(p.category_name) + (p.brand_name ? ' · ' + htmlEscapeDelivery(p.brand_name) : '') + '</span>'
+                    + '</div>'
+            ).join('');
+            dropdown.style.display = '';
         }
+
+        function addDeliveryLineItem(itemId, quantity) {
+            const product = deliveryCatalog.find(p => p.item_id === itemId);
+            if (!product) return;
+
+            if (deliveryAddedItemIds.has(itemId)) {
+                document.getElementById('dli_qty_' + itemId)?.focus();
+                return;
+            }
+            deliveryAddedItemIds.add(itemId);
+
+            const card = document.getElementById('deliveryLineItemsCard');
+            card.style.display = '';
+
+            const row = document.createElement('div');
+            row.className = 'line-item-row';
+            row.id = 'dli_row_' + itemId;
+            row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);';
+            row.innerHTML = `
+                <div style="flex:1;">
+                    <strong>${htmlEscapeDelivery(product.model)}</strong>
+                    <div class="cell-muted" style="font-size:12.5px;">${htmlEscapeDelivery(product.category_name)}${product.brand_name ? ' &middot; ' + htmlEscapeDelivery(product.brand_name) : ''}</div>
+                </div>
+                <input type="number" name="quantities[${itemId}]" id="dli_qty_${itemId}" min="1" step="1" placeholder="Quantity"
+                       value="${quantity || ''}" style="width:120px;margin-bottom:0;" required>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="removeDeliveryLineItem(${itemId})">Remove</button>
+            `;
+            document.getElementById('deliveryLineItems').appendChild(row);
+
+            document.getElementById('deliveryProductSearch').value = '';
+            document.getElementById('deliverySearchResults').style.display = 'none';
+            document.getElementById('dli_qty_' + itemId).focus();
+        }
+
+        function removeDeliveryLineItem(itemId) {
+            document.getElementById('dli_row_' + itemId)?.remove();
+            deliveryAddedItemIds.delete(itemId);
+            if (deliveryAddedItemIds.size === 0) {
+                document.getElementById('deliveryLineItemsCard').style.display = 'none';
+            }
+        }
+
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('#deliveryProductSearch') && !e.target.closest('#deliverySearchResults')) {
+                document.getElementById('deliverySearchResults').style.display = 'none';
+            }
+        });
 
         // "Add Product Manually" - each row is a brand-new product that
         // doesn't exist in the catalog yet. manualProductIndex only ever
@@ -255,8 +254,15 @@ $oldManualProducts = $old['manual_products'] ?? [];
         const manualCategories = <?= json_encode($categories ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
         const manualItemTypes = <?= json_encode($itemTypes ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
         const oldManualProducts = <?= json_encode(array_values($oldManualProducts), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        const oldQuantities = <?= json_encode($oldQuantities, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
-        paginateDeliveryProducts();
+        // Re-populate line items on a failed-validation redisplay.
+        Object.keys(oldQuantities).forEach(itemId => {
+            const qty = oldQuantities[itemId];
+            if (qty !== '' && qty !== null && Number(qty) > 0) {
+                addDeliveryLineItem(Number(itemId), qty);
+            }
+        });
         oldManualProducts.forEach(mp => addManualProductRow(mp));
         </script>
 <?php require __DIR__ . '/../partials/footer.php'; ?>

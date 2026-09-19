@@ -96,170 +96,119 @@ class ItemStock
         return $stmt->execute();
     }
 
-    /** Predicted/actual stockout alerts per (item, location) pair - Mean
-     *  Time Between Stockouts (MTBS) computed from *stock-out history*,
-     *  never average daily sales. Implements the methodology written up
-     *  in PREDICTIVE_STOCKOUT_ALERT.md; read that file for the full
-     *  reasoning behind every step below.
+    /** Predictive Stock Alert - average daily stock-out rate compared
+     *  against supplier lead time, per the standard capstone formula
+     *  (see PREDICTIVE_STOCKOUT_ALERT.md): "average daily sales" swapped
+     *  for "average daily stock-outs" throughout, since this system logs
+     *  stock-outs directly rather than sales.
      *
-     *  Returns one row per pair with something to report, most urgent
-     *  first:
-     *   - status = 'actual': quantity is 0 right now - already knowable
-     *     without any history.
-     *   - status = 'predicted': quantity > 0, but with at least 2 past
-     *     stockout events (n >= 2) the projected next one falls within
-     *     $alertWindowDays of today.
-     *  Pairs with fewer than 2 stockout events and current stock > 0 are
-     *  left out entirely - there's nothing predictive to say about them
-     *  yet (see the doc's "confidence tiers" section).
+     *  Per product (summed across every location - the formula doesn't
+     *  distinguish locations):
+     *   1. Get Current Stock - today's total quantity, every location.
+     *   2. Get Stock Out History - total units stocked out in the
+     *      trailing $lookbackDays.
+     *   3. Average Daily Stock Outs = that total / $lookbackDays.
+     *   4. Predicted Days Until Stockout = Current Stock / Average Daily
+     *      Stock Outs.
+     *   5. Reorder Point = (Average Daily Stock Outs x $leadTimeDays) +
+     *      $safetyStock - the "more realistic" version the doc
+     *      recommends over a bare day-count comparison.
+     *   6. Alert when Current Stock <= Reorder Point (equivalent to
+     *      "Predicted Days Until Stockout <= Lead Time", just expressed
+     *      as a single stock-level threshold instead of two figures).
      *
-     *  $frequencyWindowDays sets the trailing window for the secondary
-     *  "stockouts per 30 days" figure attached to every row. */
-    public function predictedStockouts(int $alertWindowDays = 7, int $frequencyWindowDays = 90): array
+     *  $leadTimeDays/$safetyStock default to the doc's own worked example
+     *  (7 days, 3 units) - this system doesn't have a per-supplier lead
+     *  time or per-product safety stock setting yet, so these are applied
+     *  uniformly. That's a reasonable capstone-scope simplification, but
+     *  a real deployment would want both configurable per product/supplier.
+     *
+     *  Products with zero stock-out history in the window are skipped
+     *  entirely (status = 'predicted') - there's no rate to compute a
+     *  prediction from - UNLESS current stock is already 0, which is
+     *  always alertable regardless of history (status = 'actual'). */
+    public function predictedStockouts(int $leadTimeDays = 7, int $safetyStock = 3, int $lookbackDays = 30): array
     {
-        // One row per (item, location) pair that has ever had stock
-        // recorded, with today's quantity - also where "actual stockout"
-        // (quantity = 0 right now) comes from.
-        $pairsStmt = $this->conn->query(
-            "SELECT s.item_id, s.location_id, s.quantity, i.model, l.location_name
+        // 1. Get Current Stock - per product, summed across every location.
+        $stockStmt = $this->conn->query(
+            "SELECT s.item_id, i.model, SUM(s.quantity) AS current_stock
              FROM {$this->table} s
              JOIN inventory_items i ON i.item_id = s.item_id
-             JOIN locations l ON l.location_id = s.location_id"
+             GROUP BY s.item_id, i.model"
         );
-        $pairs = $pairsStmt->fetchAll();
-        if (empty($pairs)) {
+        $stockRows = $stockStmt->fetchAll();
+        if (empty($stockRows)) {
             return [];
         }
 
-        // Every Stock In/Out/Delivery/Transfer row, oldest first - Item
-        // Request/Borrow/Return never move stock (see Transaction.php) so
-        // they're excluded from the replay entirely.
-        $txnStmt = $this->conn->query(
-            "SELECT item_id, location_id, to_location_id, transaction_type, quantity, transaction_date
+        // 2. Get Stock Out History - total units stocked out per product
+        // in the trailing $lookbackDays.
+        $cutoff = date('Y-m-d', strtotime("-{$lookbackDays} days"));
+        $historyStmt = $this->conn->prepare(
+            "SELECT item_id, SUM(quantity) AS total_out
              FROM transactions
-             WHERE transaction_type IN ('stock_in', 'stock_out', 'delivery', 'transfer')
-             ORDER BY transaction_date ASC, transaction_id ASC"
+             WHERE transaction_type = 'stock_out' AND transaction_date >= :cutoff
+             GROUP BY item_id"
         );
-        $transactions = $txnStmt->fetchAll();
-
-        // Bucket each transaction's effect(s) into per-(item,location)
-        // signed delta lists, staying in the same chronological order as
-        // the query above - mirrors exactly what adjust() does
-        // incrementally at Delivery/Transfer/Stock In/Out time. A Transfer
-        // affects two pairs at once: negative at the FROM location,
-        // positive at the TO location.
-        $deltasByPair = [];
-        foreach ($transactions as $t) {
-            $itemId = (int) $t['item_id'];
-            $qty = (int) $t['quantity'];
-            $date = $t['transaction_date'];
-            $type = $t['transaction_type'];
-
-            if ($type === 'stock_in' || $type === 'delivery') {
-                $deltasByPair[$itemId . ':' . $t['location_id']][] = ['date' => $date, 'delta' => $qty];
-            } elseif ($type === 'stock_out') {
-                $deltasByPair[$itemId . ':' . $t['location_id']][] = ['date' => $date, 'delta' => -$qty];
-            } elseif ($type === 'transfer') {
-                $deltasByPair[$itemId . ':' . $t['location_id']][] = ['date' => $date, 'delta' => -$qty];
-                if (!empty($t['to_location_id'])) {
-                    $deltasByPair[$itemId . ':' . $t['to_location_id']][] = ['date' => $date, 'delta' => $qty];
-                }
-            }
+        $historyStmt->bindValue(':cutoff', $cutoff);
+        $historyStmt->execute();
+        $historyByItem = [];
+        foreach ($historyStmt->fetchAll() as $row) {
+            $historyByItem[(int) $row['item_id']] = (int) $row['total_out'];
         }
 
-        $today = new DateTimeImmutable(date('Y-m-d'));
-        $frequencyCutoff = $today->modify("-{$frequencyWindowDays} days");
         $results = [];
+        foreach ($stockRows as $row) {
+            $itemId = (int) $row['item_id'];
+            $currentStock = (int) $row['current_stock'];
+            $totalStockedOut = $historyByItem[$itemId] ?? 0;
 
-        foreach ($pairs as $pair) {
-            $key = $pair['item_id'] . ':' . $pair['location_id'];
-            $deltas = $deltasByPair[$key] ?? [];
+            // 3. Calculate Average Daily Stock Outs
+            $avgDailyStockOuts = $totalStockedOut / $lookbackDays;
 
-            // Replay the running balance to find every date it hit zero
-            // coming down from a positive balance (a "stockout event").
-            $balance = 0;
-            $stockoutDates = [];
-            foreach ($deltas as $d) {
-                $prevBalance = $balance;
-                $balance += $d['delta'];
-                if ($prevBalance > 0 && $balance <= 0) {
-                    $stockoutDates[] = $d['date'];
-                }
-            }
-
-            $n = count($stockoutDates);
-            $recentCount = count(array_filter(
-                $stockoutDates,
-                fn($d) => new DateTimeImmutable($d) >= $frequencyCutoff
-            ));
-            $stockoutFrequency = round($recentCount / ($frequencyWindowDays / 30), 1);
-            $quantity = (int) $pair['quantity'];
-
-            if ($quantity <= 0) {
+            if ($currentStock <= 0) {
                 $results[] = [
-                    'item_id' => (int) $pair['item_id'],
-                    'location_id' => (int) $pair['location_id'],
-                    'model' => $pair['model'],
-                    'location_name' => $pair['location_name'],
+                    'item_id' => $itemId,
+                    'model' => $row['model'],
+                    'current_stock' => $currentStock,
+                    'avg_daily_stock_outs' => round($avgDailyStockOuts, 2),
+                    'predicted_days' => 0,
+                    'reorder_point' => null,
                     'status' => 'actual',
-                    'confidence' => null,
-                    'days_until' => 0,
-                    'predicted_date' => null,
-                    'predicted_range' => null,
-                    'stockout_count' => $n,
-                    'stockout_frequency' => $stockoutFrequency,
                 ];
                 continue;
             }
 
-            if ($n < 2) {
-                continue; // no MTBS yet - nothing predictive to say
+            if ($avgDailyStockOuts <= 0) {
+                continue; // no stock-out history yet - nothing to predict
             }
 
-            $firstDate = new DateTimeImmutable($stockoutDates[0]);
-            $lastDate = new DateTimeImmutable($stockoutDates[$n - 1]);
-            $mtbs = (int) $firstDate->diff($lastDate)->days / ($n - 1);
+            // 4. Predict the stockout date
+            $predictedDays = $currentStock / $avgDailyStockOuts;
 
-            $gaps = [];
-            for ($i = 1; $i < $n; $i++) {
-                $prev = new DateTimeImmutable($stockoutDates[$i - 1]);
-                $curr = new DateTimeImmutable($stockoutDates[$i]);
-                $gaps[] = (int) $prev->diff($curr)->days;
+            // 5. Reorder Point = (Average Daily Stock Outs x Lead Time) + Safety Stock
+            $reorderPoint = ($avgDailyStockOuts * $leadTimeDays) + $safetyStock;
+
+            // 6. Is Predicted Stockout <= Lead Time? (same test, expressed
+            // as Current Stock <= Reorder Point)
+            if ($currentStock <= $reorderPoint) {
+                $results[] = [
+                    'item_id' => $itemId,
+                    'model' => $row['model'],
+                    'current_stock' => $currentStock,
+                    'avg_daily_stock_outs' => round($avgDailyStockOuts, 2),
+                    'predicted_days' => (int) round($predictedDays),
+                    'reorder_point' => (int) ceil($reorderPoint),
+                    'status' => 'predicted',
+                ];
             }
-            $mean = array_sum($gaps) / count($gaps);
-            $variance = array_sum(array_map(fn($g) => ($g - $mean) ** 2, $gaps)) / count($gaps);
-            $stdDev = sqrt($variance);
-
-            $predictedDate = $lastDate->modify('+' . (int) round($mtbs) . ' days');
-            $daysUntil = (int) $today->diff($predictedDate)->days * ($predictedDate < $today ? -1 : 1);
-
-            if ($daysUntil > $alertWindowDays) {
-                continue; // too far out to alert on yet
-            }
-
-            $results[] = [
-                'item_id' => (int) $pair['item_id'],
-                'location_id' => (int) $pair['location_id'],
-                'model' => $pair['model'],
-                'location_name' => $pair['location_name'],
-                'status' => 'predicted',
-                'confidence' => $n >= 5 ? 'High' : ($n === 4 ? 'Medium' : 'Low'),
-                'days_until' => $daysUntil,
-                'predicted_date' => $predictedDate->format('Y-m-d'),
-                'predicted_range' => [
-                    $predictedDate->modify('-' . (int) round($stdDev) . ' days')->format('Y-m-d'),
-                    $predictedDate->modify('+' . (int) round($stdDev) . ' days')->format('Y-m-d'),
-                ],
-                'stockout_count' => $n,
-                'stockout_frequency' => $stockoutFrequency,
-            ];
         }
 
         usort($results, function ($a, $b) {
             if ($a['status'] !== $b['status']) {
                 return $a['status'] === 'actual' ? -1 : 1;
             }
-            return $a['days_until'] <=> $b['days_until'];
+            return $a['predicted_days'] <=> $b['predicted_days'];
         });
 
         return $results;

@@ -67,46 +67,19 @@ $oldQuantities = $old['quantities'] ?? [];
             <div class="page-header" style="margin-top:22px;">
                 <div class="page-title-group">
                     <h2 class="page-title" style="font-size:16px;">Products to Transfer</h2>
-                    <span class="page-title-count" id="transferProductCount">Enter a quantity for each product to move — leave the rest blank</span>
-                </div>
-                <div class="header-actions">
-                    <div class="search-box">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        <input type="text" id="transferProductSearch" placeholder="Search products..." onkeyup="filterTransferProducts()">
-                    </div>
+                    <span class="page-title-count">Search the catalog and add each product to move, with its quantity</span>
                 </div>
             </div>
 
-            <div class="table-card">
-                <table id="transferProductTable">
-                    <thead>
-                        <tr>
-                            <th>Model</th>
-                            <th>Category</th>
-                            <th style="width:150px;" id="availFromHeader">Available at From</th>
-                            <th style="width:140px;">Quantity to Move</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($items as $it): ?>
-                            <tr class="catalog-row">
-                                <td><strong><?= htmlspecialchars($it['model']) ?></strong></td>
-                                <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
-                                <td class="cell-muted" id="avail-<?= $it['item_id'] ?>">—</td>
-                                <td>
-                                    <input type="number" name="quantities[<?= $it['item_id'] ?>]" min="0" step="1" placeholder="0"
-                                           id="qty-<?= $it['item_id'] ?>"
-                                           value="<?= htmlspecialchars($oldQuantities[$it['item_id']] ?? '') ?>" style="width:100px;margin-bottom:0;">
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+            <div class="search-box" style="position:relative;max-width:420px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="transferProductSearch" placeholder="Search products to add..." autocomplete="off"
+                       oninput="renderTransferSearchResults()" onfocus="renderTransferSearchResults()">
+                <div id="transferSearchResults" class="search-results-dropdown" style="display:none;"></div>
             </div>
 
-            <div class="pagination-bar" id="transferPaginationBar">
-                <span id="transferPaginationSummary"></span>
-                <div class="pagination-controls" id="transferPaginationControls"></div>
+            <div class="table-card" id="transferLineItemsCard" style="padding:14px;margin-top:12px;display:none;">
+                <div id="transferLineItems"></div>
             </div>
 
             <div class="form-actions" style="margin-top:18px;">
@@ -118,92 +91,125 @@ $oldQuantities = $old['quantities'] ?? [];
 
         <script>
         const stockBreakdown = <?= json_encode($stockBreakdown ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
-        const allItemIds = <?= json_encode(array_column($items, 'item_id')) ?>;
         const locationNames = <?= json_encode(array_column($locations, 'location_name', 'location_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        // Full catalog, loaded once - same reasoning as Delivery's search box.
+        const transferCatalog = <?= json_encode(array_map(fn($it) => [
+            'item_id' => (int) $it['item_id'],
+            'model' => $it['model'],
+            'category_name' => $it['category_name'] ?? 'Uncategorized',
+        ], $items), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        const transferAddedItemIds = new Set();
 
-        const TRANSFER_PER_PAGE = 10;
-        let transferCurrentPage = 1;
-
-        function paginateTransferProducts() {
-            const table = document.getElementById('transferProductTable');
-            if (!table) return;
-            const rows = Array.from(table.querySelectorAll('tbody tr.catalog-row'));
-            const totalPages = Math.max(1, Math.ceil(rows.length / TRANSFER_PER_PAGE));
-            transferCurrentPage = Math.min(transferCurrentPage, totalPages);
-
-            rows.forEach((row, i) => {
-                const page = Math.floor(i / TRANSFER_PER_PAGE) + 1;
-                row.style.display = (page === transferCurrentPage) ? '' : 'none';
-            });
-
-            const start = rows.length === 0 ? 0 : (transferCurrentPage - 1) * TRANSFER_PER_PAGE + 1;
-            const end = Math.min(transferCurrentPage * TRANSFER_PER_PAGE, rows.length);
-            document.getElementById('transferProductCount').textContent =
-                'Showing ' + start + '–' + end + ' of ' + rows.length + ' products — enter a quantity, leave the rest blank';
-            document.getElementById('transferPaginationSummary').textContent =
-                rows.length + ' product' + (rows.length === 1 ? '' : 's') + ' total';
-
-            renderTransferPaginationControls(totalPages);
-        }
-
-        function renderTransferPaginationControls(totalPages) {
-            const controls = document.getElementById('transferPaginationControls');
-            if (!controls) return;
-            if (totalPages <= 1) {
-                controls.innerHTML = '';
-                return;
-            }
-            let html = '<a href="#" class="page-btn ' + (transferCurrentPage <= 1 ? 'disabled' : '') + '" onclick="event.preventDefault(); goToTransferPage(' + (transferCurrentPage - 1) + ');">&lsaquo; Prev</a>';
-            for (let p = 1; p <= totalPages; p++) {
-                html += '<a href="#" class="page-btn ' + (p === transferCurrentPage ? 'active' : '') + '" onclick="event.preventDefault(); goToTransferPage(' + p + ');">' + p + '</a>';
-            }
-            html += '<a href="#" class="page-btn ' + (transferCurrentPage >= totalPages ? 'disabled' : '') + '" onclick="event.preventDefault(); goToTransferPage(' + (transferCurrentPage + 1) + ');">Next &rsaquo;</a>';
-            controls.innerHTML = html;
-        }
-
-        function goToTransferPage(p) {
-            transferCurrentPage = p;
-            paginateTransferProducts();
-        }
-
-        // While searching, pagination is suspended - every matching row is
-        // shown at once regardless of page, same convention Products uses.
-        function filterTransferProducts() {
-            const q = document.getElementById('transferProductSearch').value.toLowerCase();
-            const rows = document.querySelectorAll('#transferProductTable tbody tr.catalog-row');
-            const paginationBar = document.getElementById('transferPaginationBar');
+        function renderTransferSearchResults() {
+            const input = document.getElementById('transferProductSearch');
+            const dropdown = document.getElementById('transferSearchResults');
+            const q = input.value.trim().toLowerCase();
 
             if (q === '') {
-                paginationBar.style.display = '';
-                paginateTransferProducts();
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '';
                 return;
             }
 
-            paginationBar.style.display = 'none';
-            rows.forEach(row => {
-                row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-            });
+            const matches = transferCatalog
+                .filter(p => !transferAddedItemIds.has(p.item_id) && p.model.toLowerCase().includes(q))
+                .slice(0, 8);
+
+            if (matches.length === 0) {
+                dropdown.innerHTML = '<div class="search-result-empty">No matching products</div>';
+                dropdown.style.display = '';
+                return;
+            }
+
+            dropdown.innerHTML = matches.map(p =>
+                '<div class="search-result-item" onclick="addTransferLineItem(' + p.item_id + ')">'
+                    + '<strong>' + htmlEscapeTransfer(p.model) + '</strong>'
+                    + '<span class="cell-muted">' + htmlEscapeTransfer(p.category_name) + '</span>'
+                    + '</div>'
+            ).join('');
+            dropdown.style.display = '';
         }
 
+        function addTransferLineItem(itemId, quantity) {
+            const product = transferCatalog.find(p => p.item_id === itemId);
+            if (!product) return;
+
+            if (transferAddedItemIds.has(itemId)) {
+                document.getElementById('qty-' + itemId)?.focus();
+                return;
+            }
+            transferAddedItemIds.add(itemId);
+
+            const card = document.getElementById('transferLineItemsCard');
+            card.style.display = '';
+
+            const row = document.createElement('div');
+            row.className = 'line-item-row';
+            row.id = 'tli_row_' + itemId;
+            row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);';
+            row.innerHTML = `
+                <div style="flex:1;">
+                    <strong>${htmlEscapeTransfer(product.model)}</strong>
+                    <div class="cell-muted" style="font-size:12.5px;">${htmlEscapeTransfer(product.category_name)} &middot; <span id="avail-${itemId}">Available: \u2014</span></div>
+                </div>
+                <input type="number" name="quantities[${itemId}]" id="qty-${itemId}" min="1" step="1" placeholder="Quantity"
+                       value="${quantity || ''}" style="width:120px;margin-bottom:0;" required>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="removeTransferLineItem(${itemId})">Remove</button>
+            `;
+            document.getElementById('transferLineItems').appendChild(row);
+
+            document.getElementById('transferProductSearch').value = '';
+            document.getElementById('transferSearchResults').style.display = 'none';
+            updateAvailability();
+            document.getElementById('qty-' + itemId).focus();
+        }
+
+        function removeTransferLineItem(itemId) {
+            document.getElementById('tli_row_' + itemId)?.remove();
+            transferAddedItemIds.delete(itemId);
+            if (transferAddedItemIds.size === 0) {
+                document.getElementById('transferLineItemsCard').style.display = 'none';
+            }
+        }
+
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('#transferProductSearch') && !e.target.closest('#transferSearchResults')) {
+                document.getElementById('transferSearchResults').style.display = 'none';
+            }
+        });
+
+        function htmlEscapeTransfer(str) {
+            const div = document.createElement('div');
+            div.textContent = str ?? '';
+            return div.innerHTML;
+        }
+
+        // Updates every already-added line item's "Available at X" figure
+        // and the quantity input's max - runs whenever From Location
+        // changes, and once right after a new line item is added.
         function updateAvailability() {
             const fromLocationId = document.getElementById('from_location_id').value;
+            const fromLocationName = locationNames[fromLocationId] || '';
 
-            const header = document.getElementById('availFromHeader');
-            header.textContent = fromLocationId ? 'Available at ' + (locationNames[fromLocationId] || 'From') : 'Available at From';
-
-            allItemIds.forEach(itemId => {
+            transferAddedItemIds.forEach(itemId => {
                 const cell = document.getElementById('avail-' + itemId);
                 const qtyInput = document.getElementById('qty-' + itemId);
                 if (!cell) return;
                 const rows = stockBreakdown[itemId] || [];
                 const match = rows.find(r => String(r.location_id) === String(fromLocationId));
                 const available = match ? match.quantity : 0;
-                cell.textContent = fromLocationId ? available : '—';
+                cell.textContent = fromLocationId ? ('Available at ' + fromLocationName + ': ' + available) : 'Available: \u2014';
                 if (qtyInput) qtyInput.max = fromLocationId ? available : '';
             });
         }
 
+        const oldQuantities = <?= json_encode($oldQuantities, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        Object.keys(oldQuantities).forEach(itemId => {
+            const qty = oldQuantities[itemId];
+            if (qty !== '' && qty !== null && Number(qty) > 0) {
+                addTransferLineItem(Number(itemId), qty);
+            }
+        });
         updateAvailability();
-        paginateTransferProducts();
         </script>
 <?php require __DIR__ . '/../partials/footer.php'; ?>

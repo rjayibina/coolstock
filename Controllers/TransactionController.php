@@ -121,6 +121,18 @@ class TransactionController
         $this->transaction->notes = trim($_POST['notes'] ?? '');
         $this->transaction->status = 'completed';
 
+        // A multi-unit serialized Stock Out writes several rows for this
+        // one submission (one per serial - see createSerializedStockOut()).
+        // Without something tying them together they'd each show up as
+        // their own separate line on Product Movement - give them a
+        // shared reference number, same SO- mechanism bulkStockOut() uses,
+        // so they consolidate into one row there instead. A single-serial
+        // or non-serialized Stock Out is already exactly one row, so
+        // there's nothing to consolidate - no reference number needed.
+        if ($isSerialized && count($serials) > 1) {
+            $this->transaction->reference_number = $this->transaction->nextReferenceNumber('SO');
+        }
+
         $created = $isSerialized
             ? $this->createSerializedStockOut($itemId, $serials)
             : $this->createSingle($qty);
@@ -186,6 +198,7 @@ class TransactionController
         $rows = $this->transaction->readByReferenceNumber($referenceNumber);
         echo json_encode(array_map(function ($row) {
             return [
+                'item_id' => (int) $row['item_id'],
                 'model' => $row['model'] ?? 'Unknown product',
                 'quantity' => (int) $row['quantity'],
                 'serial_number' => $row['serial_number'],
@@ -226,6 +239,7 @@ class TransactionController
         if (!$error) {
             $lines = $this->buildBulkStockOutLines($quantities, $serialsByItem);
             $logged = 0;
+            $referenceNumber = $this->transaction->nextReferenceNumber('SO');
 
             foreach ($lines as $itemId => $line) {
                 $this->transaction->transaction_id = null;
@@ -233,6 +247,7 @@ class TransactionController
                 $this->transaction->location_id = $locationId;
                 $this->transaction->to_location_id = null;
                 $this->transaction->transaction_type = 'stock_out';
+                $this->transaction->reference_number = $referenceNumber;
                 $this->transaction->transaction_date = $date;
                 $this->transaction->technician_name = $releasedBy;
                 $this->transaction->supplier_name = null;
@@ -251,7 +266,7 @@ class TransactionController
                 $logged++;
             }
 
-            header("Location: index.php?module=products&action=index&status=bulk_stock_out&count=$logged");
+            header("Location: index.php?module=products&action=index&status=bulk_stock_out&count=$logged&reference=$referenceNumber");
             exit;
         }
 

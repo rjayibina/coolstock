@@ -156,10 +156,21 @@ CREATE TABLE transactions (
     -- 'manual' = logged from the Transactions page or a product's Stock
     -- In/Out form. 'auto' is historical only - no code path sets it anymore.
     source ENUM('manual', 'auto') NOT NULL DEFAULT 'manual',
-    -- 'pending' = an Item Request that hasn't been approved yet.
-    -- 'completed' = everything else, and approved requests. 'declined' =
-    -- a refused request, kept for the audit trail.
-    status ENUM('pending', 'completed', 'declined') NOT NULL DEFAULT 'completed',
+    -- 'pending' = an Item Request awaiting a warehouse staff decision.
+    -- 'active' = an approved request's Borrow row while it's still
+    -- checked out (Item Request/Return Monitoring Module). 'completed' =
+    -- a Stock In/Out/Delivery/Transfer row, an approved Item Request, or a
+    -- Borrow that's been fully returned. 'declined' = a refused request,
+    -- kept for the audit trail.
+    status ENUM('pending', 'active', 'completed', 'declined') NOT NULL DEFAULT 'completed',
+    -- Self-referencing: on a 'borrow' row, the Item Request it fulfills;
+    -- on a 'return' row, the Borrow it returns against. Null for every
+    -- other type. Lets an Item Request's approval history and a Borrow's
+    -- return history both be reconstructed without a separate table.
+    related_transaction_id INT DEFAULT NULL,
+    -- 'return' rows only: how many of the returned units came back
+    -- damaged and were therefore NOT restocked. Null for every other type.
+    damaged_quantity INT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_transactions_item_id
         FOREIGN KEY (item_id) REFERENCES inventory_items(item_id)
@@ -171,7 +182,11 @@ CREATE TABLE transactions (
     CONSTRAINT fk_transactions_to_location
         FOREIGN KEY (to_location_id) REFERENCES locations(location_id)
         ON DELETE RESTRICT,
-    INDEX idx_transactions_reference_number (reference_number)
+    CONSTRAINT fk_transactions_related_transaction
+        FOREIGN KEY (related_transaction_id) REFERENCES transactions(transaction_id)
+        ON DELETE SET NULL,
+    INDEX idx_transactions_reference_number (reference_number),
+    INDEX idx_transactions_related_transaction_id (related_transaction_id)
 );
 
 -- Reports: metadata for the (not yet built) Reporting and Monitoring
@@ -187,6 +202,21 @@ CREATE TABLE reports (
     generated_by VARCHAR(100) DEFAULT NULL,
     notes TEXT,
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Users: backs the User Access and Roles Module. role gates which
+-- modules/actions an account can reach (enforced in index.php, not at
+-- the database level). Accounts are deactivated (is_active = 0), never
+-- hard-deleted, so a name stays attributable on anything historical it
+-- was involved with.
+CREATE TABLE users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    full_name VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('admin', 'warehouse_staff', 'technician') NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ============================================================
@@ -218,6 +248,16 @@ INSERT INTO item_types (type_name, requires_serial) VALUES
 
 -- ---- Locations (location_id 1-2) - linked to items via item_stock ----
 INSERT INTO locations (location_name) VALUES ('Main Store'), ('Warehouse');
+
+-- ---- Users (user_id 1-3) - one per role, reusing the technician names
+-- already seen throughout the transaction history above so the demo
+-- data reads as one consistent staff roster. All three share the demo
+-- password "ChangeMe123!" (bcrypt-hashed below) - change it before any
+-- real deployment.
+INSERT INTO users (full_name, email, password_hash, role, is_active) VALUES
+('Ronald Ibina', 'admin@misteraircon.ph', '$2y$12$RWN87t8Wr7k9Y3snz/XC.eClbC6HRzmsfJ1Uy1mVlKkTeEHZmDuti', 'admin', 1),
+('Roberto Cruz', 'roberto.cruz@misteraircon.ph', '$2y$12$OY95TWbwRJZiI7Tq787LK.vRAXF6Ycw/MvVD1VE4X0gPAMzFHm/k.', 'warehouse_staff', 1),
+('Ana Reyes', 'ana.reyes@misteraircon.ph', '$2y$12$.NIqjJ.x4BjpZcDn/dZNL./luDYfwc1KE6wJxXfkAVTXzfDQI5/QC', 'technician', 1);
 
 -- ---- Inventory Items (item_id 1-11) ----
 -- Consumables (#7-10) have no brand or AC specs, so their `model` is a
@@ -314,25 +354,38 @@ INSERT INTO item_stock (item_id, location_id, quantity) VALUES
 (1, 1, 8), (1, 2, 2),
 (2, 2, 6),
 (3, 1, 4),
-(4, 2, 2),
+-- #4: 3 stocked in, 1 stocked out in July, 1 more stocked out within the
+-- last 30 days (see transactions below) -> Warehouse 3-1-1=1. Low enough
+-- against its stock-out rate to trip a Predicted Stockout alert.
+(4, 2, 1),
 (5, 1, 12),
-(6, 2, 5),
+-- #6: 5 stocked in, then 3 stocked out within the last 30 days -> 2.
+-- Also trips a Predicted Stockout alert.
+(6, 2, 2),
 (7, 1, 25),
 (8, 1, 60),
-(9, 2, 200),
-(10, 2, 30),
+-- #9: 200 stocked in, then 20 borrowed and fully returned with 2
+-- damaged (see the Item Request/Borrow/Return demo below) -> 200-2=198.
+(9, 2, 198),
+-- #10: 30 stocked in, then 4 borrowed and still checked out (see below)
+-- -> 30-4=26.
+(10, 2, 26),
 (11, 1, 0),
--- #12: delivered 6 to Main Store, 2 transferred out to Warehouse, 1
--- serialized unit stocked out from Main Store -> Main Store 6-2-1=3,
--- Warehouse 0+2=2.
-(12, 1, 3), (12, 2, 2),
+-- #12: delivered 6 to Main Store, 2 transferred out to Warehouse, then 3
+-- serialized units stocked out across both locations (1 older + 2 within
+-- the last 30 days) -> Main Store 6-2-1-1=2, Warehouse 0+2-1=1. Also
+-- trips a Predicted Stockout alert.
+(12, 1, 2), (12, 2, 1),
 -- #13: delivered 40 to Main Store, untouched since.
 (13, 1, 40);
 
 -- ---- Transactions - activity log for the seeded items ----
--- Item Request/Borrow/Return are intentionally not seeded - that workflow
--- is on pause for now (no UI creates or approves them currently). Every
--- item below only has Stock In/Out/Delivery/Transfer history.
+-- Items #1-6, #11-13 below only have Stock In/Out/Delivery/Transfer
+-- history. A small Item Request/Borrow/Return demo (Item Request and
+-- Return Monitoring Module) follows at the end of this section, on
+-- items #7-10, covering a pending request, a declined one, an approved
+-- request still checked out, and a full approve -> borrow -> return
+-- cycle with a damaged unit.
 
 -- #1 Daikin Split FTKC25XVM - stocked in at both locations, then partly
 -- stocked out (net: Main Store 8, Warehouse 2 - see item_stock above)
@@ -350,19 +403,26 @@ INSERT INTO transactions (item_id, location_id, transaction_type, quantity, tran
 INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
 (3, 1, 'stock_in', 4, '2026-07-01', 'Ana Reyes', 'Initial stock (seed data).', 'manual', 'completed');
 
--- #4 LG Cassette ATNQ36GPLE0 - stocked in then partly out (net: Warehouse 2)
+-- #4 LG Cassette ATNQ36GPLE0 - stocked in then partly out, including a
+-- recent stock-out (within the Predictive Stock Alert's 30-day lookback,
+-- relative to 2026-09-18) so the Dashboard has a live "Reorder now" case.
 INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
 (4, 2, 'stock_in', 3, '2026-05-10', 'Roberto Cruz', 'Initial stock (seed data).', 'manual', 'completed'),
-(4, 2, 'stock_out', 1, '2026-08-01', 'Roberto Cruz', 'Released for a commercial installation - conference room unit.', 'manual', 'completed');
+(4, 2, 'stock_out', 1, '2026-08-01', 'Roberto Cruz', 'Released for a commercial installation - conference room unit.', 'manual', 'completed'),
+(4, 2, 'stock_out', 1, '2026-09-08', 'Roberto Cruz', 'Released for a residential retrofit job.', 'manual', 'completed');
 
 -- #5 Samsung Split AR13AYHZAWK - stocked in then partly out (net: Main Store 12)
 INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
 (5, 1, 'stock_in', 15, '2026-06-01', 'Roberto Cruz', 'Initial stock (seed data).', 'manual', 'completed'),
 (5, 1, 'stock_out', 3, '2026-07-10', 'Roberto Cruz', 'Released for a residential installation - client delivery.', 'manual', 'completed');
 
--- #6 Mitsubishi Electric MSY-GL25VF - stocked in
+-- #6 Mitsubishi Electric MSY-GL25VF - stocked in, then two recent
+-- stock-outs (both within the last 30 days) to also trip a Predicted
+-- Stockout alert on the Dashboard.
 INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
-(6, 2, 'stock_in', 5, '2026-06-25', 'Juan Dela Cruz', 'Initial stock (seed data).', 'manual', 'completed');
+(6, 2, 'stock_in', 5, '2026-06-25', 'Juan Dela Cruz', 'Initial stock (seed data).', 'manual', 'completed'),
+(6, 2, 'stock_out', 2, '2026-08-25', 'Juan Dela Cruz', 'Released for a residential installation - client delivery.', 'manual', 'completed'),
+(6, 2, 'stock_out', 1, '2026-09-10', 'Juan Dela Cruz', 'Released for a follow-up unit swap.', 'manual', 'completed');
 
 -- #7 R32 Refrigerant Gas Cylinder - stocked in
 INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
@@ -400,4 +460,37 @@ INSERT INTO transactions (item_id, location_id, to_location_id, transaction_type
 (12, 1, 2, 'transfer', 'TR-000001', 2, '2026-08-30', 'Roberto Cruz', 'Moved 2 units to Warehouse ahead of a scheduled commercial job.', 'manual', 'completed');
 
 INSERT INTO transactions (item_id, location_id, transaction_type, quantity, serial_number, transaction_date, technician_name, notes, source, status) VALUES
-(12, 1, 'stock_out', 1, 'LGSN-20250912-0007', '2026-09-01', 'Roberto Cruz', 'Installed at client site - serial logged for warranty tracking.', 'manual', 'completed');
+(12, 1, 'stock_out', 1, 'LGSN-20250912-0007', '2026-09-01', 'Roberto Cruz', 'Installed at client site - serial logged for warranty tracking.', 'manual', 'completed'),
+(12, 2, 'stock_out', 1, 'LGSN-20250912-0008', '2026-09-14', 'Ana Reyes', 'Released for an emergency repair job - unit swap.', 'manual', 'completed'),
+(12, 1, 'stock_out', 1, 'LGSN-20250912-0009', '2026-09-16', 'Roberto Cruz', 'Installed at client site - follow-up unit.', 'manual', 'completed');
+
+-- #7 R32 Refrigerant Gas Cylinder - a pending Item Request, not yet
+-- decided by Warehouse Staff.
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(7, 'item_request', 5, '2026-09-17', 'Ana Reyes', 'Needed for a scheduled maintenance job.', 'manual', 'pending');
+
+-- #8 Copper Pipe Insulation Tape - requested, then declined.
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(8, 'item_request', 10, '2026-09-10', 'Ana Reyes', 'Declined - reserved for another scheduled job this week.', 'manual', 'declined');
+
+-- #10 AC Mounting Bracket Set - requested, approved, and still checked
+-- out (Warehouse 30 -> 26, see item_stock above). The Item Request row
+-- becomes 'completed' on approval; the Borrow row it creates is the one
+-- that stays 'active' until returned.
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(10, 'item_request', 4, '2026-09-05', 'Ana Reyes', 'For an on-site bracket replacement.', 'manual', 'completed');
+SET @req_10 = LAST_INSERT_ID();
+INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, related_transaction_id, source, status) VALUES
+(10, 2, 'borrow', 4, '2026-09-06', 'Roberto Cruz', @req_10, 'manual', 'active');
+
+-- #9 PVC Drain Pipe - requested, approved, borrowed, and fully returned,
+-- with 2 of the 20 units coming back damaged (Warehouse 200 -> 198, see
+-- item_stock above - only the 18 undamaged units were restocked).
+INSERT INTO transactions (item_id, transaction_type, quantity, transaction_date, technician_name, notes, source, status) VALUES
+(9, 'item_request', 20, '2026-08-20', 'Ana Reyes', 'For a multi-unit installation job.', 'manual', 'completed');
+SET @req_9 = LAST_INSERT_ID();
+INSERT INTO transactions (item_id, location_id, transaction_type, quantity, transaction_date, technician_name, related_transaction_id, source, status) VALUES
+(9, 2, 'borrow', 20, '2026-08-21', 'Roberto Cruz', @req_9, 'manual', 'completed');
+SET @borrow_9 = LAST_INSERT_ID();
+INSERT INTO transactions (item_id, location_id, transaction_type, quantity, damaged_quantity, transaction_date, technician_name, related_transaction_id, notes, source, status) VALUES
+(9, 2, 'return', 20, 2, '2026-08-30', 'Roberto Cruz', @borrow_9, '2 units returned with cracked fittings - written off, not restocked.', 'manual', 'completed');

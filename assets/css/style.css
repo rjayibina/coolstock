@@ -19,9 +19,52 @@
     --danger: #DC2626;
     --danger-bg: #FDEDED;
     --radius: 10px;
+
+    /* Elevation - kept deliberately soft so cards read as paper on the
+       grey page rather than floating panels. */
+    --shadow-xs: 0 1px 2px rgba(20, 21, 43, 0.04);
+    --shadow-sm: 0 1px 3px rgba(20, 21, 43, 0.06), 0 1px 2px rgba(20, 21, 43, 0.04);
+    --shadow-md: 0 4px 14px rgba(20, 21, 43, 0.08);
+    --shadow-lg: 0 20px 50px rgba(20, 21, 43, 0.25);
+
+    /* Focus ring, shared by every interactive element. */
+    --ring: 0 0 0 3px rgba(76, 95, 213, 0.30);
+
+    --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Layout constants referenced by both the rail and the responsive
+       layer, so the drawer width can never drift from the rail width. */
+    --rail-width: 210px;
+    --main-pad-y: 28px;
+    --main-pad-x: 34px;
 }
 
 * { box-sizing: border-box; }
+
+/* Anchor in-page jumps below the sticky mobile topbar. */
+html { scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Visible keyboard focus everywhere, without showing a ring on mouse
+   clicks. Individual components below may refine this. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
 
 body {
     font-family: 'Inter', -apple-system, "Segoe UI", Arial, sans-serif;
@@ -37,14 +80,31 @@ body {
 }
 
 /* ---------- Rail (primary nav) ---------- */
+/* Sticky full-height on desktop so navigation stays reachable on long
+   inventory tables; becomes an off-canvas drawer below 900px (see the
+   responsive layer at the end of this file). */
 .rail {
-    width: 210px;
+    width: var(--rail-width);
     flex-shrink: 0;
     background: var(--sidebar-bg);
     display: flex;
     flex-direction: column;
     padding: 22px 14px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
+
+/* Subtle scrollbar inside the indigo rail - the default light one is
+   jarring against the brand colour. */
+.rail::-webkit-scrollbar { width: 6px; }
+.rail::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 3px;
+}
+.rail::-webkit-scrollbar-track { background: transparent; }
 
 .brand {
     display: flex;
@@ -155,9 +215,13 @@ body {
 }
 
 /* ---------- Main area ---------- */
+/* min-width:0 is load-bearing: without it this flex child refuses to
+   shrink below its content, so one wide inventory table stretches the
+   whole page and pushes the rail off screen. */
 .main {
     flex: 1;
-    padding: 28px 34px;
+    min-width: 0;
+    padding: var(--main-pad-y) var(--main-pad-x);
     max-width: 100%;
 }
 
@@ -218,11 +282,45 @@ body {
 
 .search-box svg { flex-shrink: 0; opacity: 0.6; }
 
+.search-results-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    max-height: 260px;
+    overflow-y: auto;
+    z-index: 20;
+}
+
+.search-result-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+}
+
+.search-result-item:last-child { border-bottom: none; }
+.search-result-item:hover { background: #F5F6FB; }
+
+.search-result-empty {
+    padding: 12px 14px;
+    color: var(--text-muted);
+    font-size: 13.5px;
+}
+
 .btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     padding: 9px 16px;
+    min-height: 38px;
     border-radius: 8px;
     text-decoration: none;
     font-size: 14px;
@@ -231,6 +329,24 @@ body {
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
+    transition: background var(--transition), box-shadow var(--transition),
+                transform var(--transition), color var(--transition);
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Tactile press feedback - tiny, but it makes the app feel responsive
+   on touch where there's no hover state to rely on. */
+.btn:active { transform: translateY(1px); }
+
+.btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+.btn[disabled],
+.btn.disabled {
+    opacity: 0.5;
+    pointer-events: none;
 }
 
 .btn-primary { background: var(--accent); color: #fff; }
@@ -328,6 +444,7 @@ body {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
+    box-shadow: var(--shadow-sm);
 }
 
 table {
@@ -356,8 +473,11 @@ tbody td {
 }
 
 tbody tr:last-child td { border-bottom: none; }
+tbody tr { transition: background var(--transition); }
 tbody tr:hover { background: #FAFAFD; }
 .product-row { cursor: pointer; }
+.product-row.out-of-stock { background: #FEF2F2; }
+.product-row.out-of-stock:hover { background: #FEE2E2; }
 .transaction-row { cursor: pointer; }
 .category-row { cursor: pointer; }
 
@@ -393,18 +513,82 @@ tbody tr:hover { background: #FAFAFD; }
     font-size: 14px;
 }
 
+/* The no-data message inside a card that isn't a table - e.g. a chart
+   card with nothing to plot yet. The dashboard has referenced this class
+   since the charts were added but it was never defined, so those
+   messages rendered as bare unstyled text. */
+.empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 120px;
+    padding: 24px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13.5px;
+}
+
 /* ---------- Alerts ---------- */
+/* A 3px status stripe on the leading edge so the alert's meaning is
+   carried by more than colour alone. */
 .alert {
     padding: 11px 16px;
     border-radius: 8px;
     font-size: 13.5px;
     margin-bottom: 18px;
     font-weight: 500;
+    border-left: 3px solid currentColor;
+    line-height: 1.5;
 }
 
 .alert-success { background: var(--success-bg); color: var(--success); }
 .alert-error { background: var(--danger-bg); color: var(--danger); }
 .alert-warning { background: var(--warning-bg); color: var(--warning); }
+
+/* ---------- Callout (dashboard call-to-action) ----------
+   A banner for the one thing this role should deal with first, with the
+   action attached. Louder than .alert (which reports what just
+   happened) and quieter than a modal. */
+.callout {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: #EEF0FE;
+    border: 1px solid #C7CDF5;
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 20px;
+}
+
+.callout-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.callout-body { flex: 1 1 240px; min-width: 0; }
+
+.callout-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-dark);
+}
+
+.callout-text {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.callout-warning { background: var(--warning-bg); border-color: #F5D9A8; }
+.callout-warning .callout-icon { background: var(--warning); }
 
 /* ---------- Forms (create / edit) ---------- */
 .form-card {
@@ -413,6 +597,7 @@ tbody tr:hover { background: #FAFAFD; }
     border-radius: var(--radius);
     padding: 26px 28px;
     max-width: 520px;
+    box-shadow: var(--shadow-sm);
 }
 
 form label {
@@ -479,9 +664,13 @@ form textarea { resize: vertical; min-height: 90px; }
 .back-link:hover { color: var(--text-dark); }
 
 /* ---------- Dashboard stat cards ---------- */
+/* auto-fit rather than a fixed 3 columns so a dashboard can show three
+   or four tiles without the last one orphaning on its own row. With
+   three tiles the empty tracks collapse and it behaves exactly as the
+   old repeat(3, 1fr) did. */
 .stat-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
     gap: 16px;
     margin-bottom: 28px;
 }
@@ -491,6 +680,30 @@ form textarea { resize: vertical; min-height: 90px; }
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 18px 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+.stat-value { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* A stat tile that navigates - used on the Technician dashboard, where
+   each figure leads to the list it counts. Borrows the quick-card hover
+   language so the two read as the same family. */
+a.stat-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+a.stat-card-link:hover {
+    border-color: var(--accent);
+    box-shadow: 0 4px 14px rgba(76, 95, 213, 0.12);
+}
+
+a.stat-card-link:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--ring);
 }
 
 .stat-label {
@@ -512,6 +725,18 @@ form textarea { resize: vertical; min-height: 90px; }
     color: var(--text-dark);
     margin: 28px 0 12px 0;
 }
+
+/* A section title with a trailing action ("View all"). Carries the
+   title's own vertical rhythm so the two are interchangeable. */
+.section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 28px 0 12px 0;
+}
+
+.section-head .section-title { margin: 0; }
 
 /* ---------- Transaction type badges ---------- */
 .badge {
@@ -543,6 +768,8 @@ form textarea { resize: vertical; min-height: 90px; }
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 20px 22px;
+    box-shadow: var(--shadow-sm);
+    min-width: 0; /* let the canvas shrink inside the grid track */
 }
 
 .chart-title {
@@ -552,47 +779,9 @@ form textarea { resize: vertical; min-height: 90px; }
     margin-bottom: 16px;
 }
 
-.bar-chart {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.bar-row {
-    display: grid;
-    grid-template-columns: 110px 1fr 28px;
-    align-items: center;
-    gap: 10px;
-}
-
-.bar-label {
-    font-size: 12.5px;
-    color: var(--text-muted);
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.bar-track {
-    background: #F0F1F8;
-    border-radius: 5px;
-    height: 10px;
-    overflow: hidden;
-}
-
-.bar-fill {
-    height: 100%;
-    background: var(--accent);
-    border-radius: 5px;
-    transition: width 0.3s ease;
-}
-
-.bar-value {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--text-dark);
-    text-align: right;
+.chart-canvas-wrap {
+    position: relative;
+    height: 260px;
 }
 
 /* ---------- Filter panel ---------- */
@@ -631,6 +820,20 @@ form textarea { resize: vertical; min-height: 90px; }
     min-width: 170px;
 }
 
+/* ---------- Inline toolbar form (Reports filter bar) ----------
+   A row of labelled controls sitting inside a card, with an action
+   pushed to the trailing edge. Collapses to full-width stacked controls
+   on phones (see the responsive layer). */
+.inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.inline-form-grow { min-width: 220px; }
+.inline-form-push { margin-left: auto; }
+
 /* ---------- Category cards ---------- */
 .category-card {
     background: var(--card-bg);
@@ -640,7 +843,15 @@ form textarea { resize: vertical; min-height: 90px; }
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 16px;
     margin-bottom: 12px;
+    box-shadow: var(--shadow-sm);
+    transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.category-card:hover {
+    border-color: #D5D8EC;
+    box-shadow: var(--shadow-md);
 }
 
 .category-card-name {
@@ -781,9 +992,24 @@ form textarea { resize: vertical; min-height: 90px; }
     justify-content: center;
     z-index: 1000;
     padding: 20px;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
 }
 
-.modal-overlay.open { display: flex; }
+.modal-overlay.open {
+    display: flex;
+    animation: modal-fade var(--transition) both;
+}
+
+@keyframes modal-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes modal-rise {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
 
 .modal-dialog {
     background: #fff;
@@ -792,8 +1018,31 @@ form textarea { resize: vertical; min-height: 90px; }
     width: 100%;
     max-height: 82vh;
     overflow-y: auto;
-    box-shadow: 0 20px 50px rgba(20, 21, 43, 0.25);
+    overscroll-behavior: contain;
+    box-shadow: var(--shadow-lg);
+    animation: modal-rise 0.22s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
+
+/* Keep the title bar in view while a long modal body scrolls. */
+.modal-header {
+    position: sticky;
+    top: 0;
+    background: #fff;
+    border-radius: 12px 12px 0 0;
+    z-index: 1;
+}
+
+.modal-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition), color var(--transition);
+}
+
+.modal-close:hover { background: #F5F6FB; }
 
 .modal-header {
     display: flex;
@@ -895,3 +1144,468 @@ form textarea { resize: vertical; min-height: 90px; }
 .page-btn:hover { background: #F5F6FB; }
 .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .page-btn.disabled { opacity: 0.4; pointer-events: none; }
+
+/* =================================================================
+   MOBILE NAVIGATION
+   The rail turns into an off-canvas drawer below 900px. These pieces
+   are inert (display:none) on desktop and only wake up inside the
+   breakpoint further down.
+   ================================================================= */
+
+/* Sticky app bar that replaces the rail's always-visible branding. */
+.topbar {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 900;
+    margin: calc(var(--main-pad-y) * -1) calc(var(--main-pad-x) * -1) 18px;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.88);
+    -webkit-backdrop-filter: saturate(180%) blur(10px);
+    backdrop-filter: saturate(180%) blur(10px);
+    border-bottom: 1px solid var(--border);
+}
+
+.rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--text-dark);
+    cursor: pointer;
+    transition: background var(--transition);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.rail-toggle:hover { background: #F5F6FB; }
+.rail-toggle:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--text-dark);
+    min-width: 0;
+}
+
+.topbar-brand .brand-mark { background: var(--accent); }
+
+/* Dimmer behind the open drawer. Kept out of the layout entirely on
+   desktop so it can never swallow a click. */
+.rail-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 21, 43, 0.5);
+    z-index: 1050;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--transition);
+}
+
+.rail-scrim.show { opacity: 1; pointer-events: auto; }
+
+/* Close affordance inside the drawer itself. */
+.rail-close {
+    display: none;
+    position: absolute;
+    top: 18px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.rail-close:hover { background: rgba(255, 255, 255, 0.24); }
+
+body.rail-open { overflow: hidden; }
+
+/* =================================================================
+   RESPONSIVE LAYER
+   Breakpoints, largest first:
+     1100px - tighten the shell for small laptops
+      900px - rail becomes a drawer; multi-column grids collapse
+      640px - phone: tables become stacked cards, modals become sheets
+      400px - very small phones
+   ================================================================= */
+
+/* ---------- Small laptops / large tablets ---------- */
+@media (max-width: 1100px) {
+    :root {
+        --main-pad-y: 24px;
+        --main-pad-x: 24px;
+    }
+
+    .chart-grid { grid-template-columns: 1fr; }
+    .search-box { min-width: 200px; }
+    .detail-label { flex-basis: 140px; }
+}
+
+/* ---------- Tablet portrait and below: drawer navigation ---------- */
+@media (max-width: 900px) {
+    .rail {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        height: 100dvh;
+        width: min(82vw, 290px);
+        padding-top: 20px;
+        transform: translateX(-100%);
+        transition: transform var(--transition);
+        z-index: 1100;
+        box-shadow: 0 0 40px rgba(20, 21, 43, 0.3);
+    }
+
+    .rail.open { transform: none; }
+
+    .rail-scrim { display: block; }
+    .rail-close { display: inline-flex; }
+    .topbar { display: flex; }
+
+    /* Roomier nav targets now that it's a touch surface. */
+    .nav-item { padding: 11px 12px; font-size: 15px; }
+    .nav-subitem { padding: 10px 12px 10px 34px; font-size: 14px; }
+    .brand { padding-right: 46px; }
+
+    /* Page furniture stacks instead of squeezing. */
+    .page-header {
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .header-actions { flex-wrap: wrap; }
+
+    /* auto-fit rather than a fixed 2 columns: a hard 2-up leaves the
+       third tile orphaned at half width on a 3-tile row. */
+    .quick-actions,
+    .stat-grid {
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 14px;
+    }
+
+    .filter-form {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .filter-form > div { flex: 1 1 190px; }
+    .filter-form select { min-width: 0; width: 100%; }
+
+    .bulk-bar { flex-wrap: wrap; gap: 10px; }
+
+    /* Wide tables scroll sideways rather than crushing their columns.
+       overflow-x needs a matching overflow-y or the browser turns the
+       hidden axis into a scroll container and clips dropdowns. */
+    .table-card {
+        overflow-x: auto;
+        overflow-y: visible;
+        -webkit-overflow-scrolling: touch;
+
+        /* Scroll shadow: the two radial gradients are painted against the
+           viewport (scroll) while the white cover gradients travel with
+           the content (local), so a soft edge shadow appears only on the
+           side that still has content hidden past it, and fades out when
+           you reach that end. Uses background-image, not the shorthand,
+           so the card keeps its own background-color. */
+        background-image:
+            linear-gradient(to right, var(--card-bg) 30%, rgba(255, 255, 255, 0)),
+            linear-gradient(to left, var(--card-bg) 30%, rgba(255, 255, 255, 0)),
+            radial-gradient(farthest-side at 0 50%, rgba(20, 21, 43, 0.13), rgba(20, 21, 43, 0)),
+            radial-gradient(farthest-side at 100% 50%, rgba(20, 21, 43, 0.13), rgba(20, 21, 43, 0));
+        background-position: left center, right center, left center, right center;
+        background-repeat: no-repeat;
+        background-size: 36px 100%, 36px 100%, 14px 100%, 14px 100%;
+        background-attachment: local, local, scroll, scroll;
+    }
+
+    /* Let cells keep their natural width and scroll the table sideways,
+       instead of letting the browser squeeze 7 columns into 700px and
+       wrap every product name onto three lines. A fixed min-width can't
+       do this well - it over-scrolls narrow tables and under-scrolls
+       wide ones - whereas nowrap makes each table demand exactly the
+       room its own content needs. Reset in the phone block below, where
+       rows become stacked cards. */
+    .table-card th,
+    .table-card td {
+        white-space: nowrap;
+    }
+
+    .detail-row { gap: 12px; }
+    .detail-label { flex-basis: 130px; font-size: 14px; }
+    .detail-value { font-size: 14px; }
+}
+
+/* ---------- Phones ---------- */
+@media (max-width: 640px) {
+    :root {
+        --main-pad-y: 18px;
+        --main-pad-x: 16px;
+    }
+
+    .page-title { font-size: 20px; }
+    .section-title { margin-top: 22px; }
+
+    .quick-actions,
+    .stat-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    /* Stat cards go horizontal on phones - label left, figure right.
+       Stacked vertically they ate most of the first screen before any
+       actual content appeared. */
+    .stat-grid { gap: 8px; }
+
+    /* a.stat-card-link is listed explicitly: its own `display:block` rule
+       is more specific than a bare `.stat-card`, so without it the linked
+       tiles would ignore this horizontal layout. */
+    .stat-card,
+    a.stat-card-link {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 13px 16px;
+    }
+
+    .stat-label { margin-bottom: 0; }
+    .stat-value { font-size: 22px; line-height: 1.1; }
+
+    .chart-card { padding: 16px 14px; }
+    .chart-canvas-wrap { height: 220px; }
+
+    /* Full-width primary actions read as buttons, not links, on touch. */
+    .page-header .header-actions { width: 100%; }
+    .page-header .header-actions > .btn,
+    .page-header .header-actions > .split-btn { flex: 1 1 auto; }
+
+    .search-box { width: 100%; min-width: 0; }
+
+    /* 16px is the threshold below which iOS Safari zooms the viewport on
+       focus - keep every text control at or above it. */
+    form input[type="text"],
+    form input[type="number"],
+    form input[type="date"],
+    form input[type="email"],
+    form input[type="password"],
+    form input[type="search"],
+    form input[type="tel"],
+    form input[type="url"],
+    form select,
+    form textarea,
+    .search-box input,
+    .filter-form select,
+    .sort-bar select {
+        font-size: 16px;
+    }
+
+    .form-card { padding: 20px 18px; }
+    .form-actions { flex-direction: column-reverse; }
+    .form-actions > .btn { width: 100%; }
+
+    /* Toolbar form stacks; the trailing action stops floating right and
+       becomes a normal full-width button. */
+    .inline-form > div { flex: 1 1 100%; min-width: 0; }
+    .inline-form-push { margin-left: 0; }
+    .inline-form select,
+    .inline-form input[type="date"],
+    .inline-form .btn { width: 100%; }
+
+    /* ----- Tables become stacked cards -----
+       Each row turns into its own card with a caption above every value.
+       The captions come from data-label, written once by the script in
+       partials/footer.php by reading each table's own <thead>, so no view
+       has to hardcode them. Scoped to .table-card so the small summary
+       tables inside modals keep their normal grid. */
+    /* Drop the outer card chrome ONLY where the card actually wraps a
+       table, so each row can become its own card. `.table-card` is also
+       used as a plain panel (the Reports filter bar, empty-state panels)
+       and those must keep their border and background.
+       Without :has() support the rows simply stack inside the one white
+       card - still correct, just less airy. */
+    @supports selector(:has(> table)) {
+        .table-card:has(> table) {
+            overflow: visible;
+            background: transparent;
+            /* Clear the tablet scroll-shadow gradients - nothing scrolls
+               sideways once rows are stacked cards. */
+            background-image: none;
+            border: none;
+            box-shadow: none;
+        }
+    }
+
+    .table-card > table { min-width: 0; }
+
+    .table-card table,
+    .table-card tbody,
+    .table-card tr,
+    .table-card td { display: block; width: 100%; }
+
+    .table-card thead { display: none; }
+
+    .table-card tbody tr {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-sm);
+        padding: 12px 14px;
+        margin-bottom: 10px;
+    }
+
+    .table-card tbody tr:hover { background: var(--card-bg); }
+
+    /* white-space resets the tablet-band nowrap: inside a stacked card
+       values must be free to wrap. */
+    .table-card tbody td {
+        border-bottom: none;
+        padding: 6px 0;
+        font-size: 14px;
+        white-space: normal;
+    }
+
+    /* Only labelled cells get a caption - the empty-state row and the
+       select-all checkbox cell deliberately have none. */
+    .table-card tbody td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 700;
+        color: var(--text-muted);
+        margin-bottom: 3px;
+    }
+
+    /* The first labelled cell carries the record's name - give it weight
+       and a divider so each card has an obvious title. */
+    .table-card tbody td:first-child {
+        padding-top: 0;
+        font-size: 15px;
+    }
+
+    /* Actions sit at the bottom of the card as a full-width button row.
+       display must be restated here: the `.table-card td { display:block }`
+       rule above outranks the base `.actions { display:flex }`. */
+    .table-card tbody td.actions {
+        display: flex;
+        flex-wrap: wrap;
+        padding-top: 12px;
+        margin-top: 8px;
+        border-top: 1px solid var(--border);
+        gap: 8px;
+    }
+
+    .table-card tbody td.actions::before { content: none; }
+    .table-card tbody td.actions .btn,
+    .table-card tbody td.actions > a,
+    .table-card tbody td.actions > button { flex: 1 1 auto; }
+
+    .table-card .empty-row td {
+        padding: 34px 18px;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    .table-card .empty-row { padding: 0; border: none; box-shadow: none; background: none; }
+
+    /* Tables that live outside .table-card (the batch summaries inside
+       modals) just scroll. */
+    .modal-body table { display: block; overflow-x: auto; white-space: nowrap; }
+
+    /* ----- Modals become bottom sheets ----- */
+    .modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .modal-dialog {
+        max-width: none;
+        max-height: 92dvh;
+        border-radius: 16px 16px 0 0;
+        animation: sheet-rise 0.24s cubic-bezier(0.4, 0, 0.2, 1) both;
+    }
+
+    @keyframes sheet-rise {
+        from { transform: translateY(100%); }
+        to { transform: none; }
+    }
+
+    .modal-header { border-radius: 16px 16px 0 0; padding: 16px 18px; }
+    .modal-body { padding: 16px 18px 22px; }
+
+    /* ----- Misc ----- */
+    .pagination-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        text-align: center;
+    }
+
+    .pagination-controls { justify-content: center; flex-wrap: wrap; }
+
+    .category-card {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .category-card-actions { width: 100%; justify-content: space-between; gap: 12px; }
+
+    .detail-row { flex-direction: column; gap: 4px; padding: 12px 0; }
+    .detail-label { flex-basis: auto; font-size: 12.5px; }
+    .detail-value { font-size: 15px; }
+
+    .dropdown-menu { right: auto; left: 0; }
+}
+
+/* ---------- Very small phones ---------- */
+@media (max-width: 400px) {
+    :root { --main-pad-x: 12px; }
+
+    .page-title { font-size: 19px; }
+    .btn { padding: 9px 13px; font-size: 13.5px; }
+    .topbar { padding: 9px 12px; }
+    .table-card tbody tr { padding: 11px 12px; }
+
+    /* Stack action buttons rather than letting them shrink below a
+       comfortable tap target. */
+    .table-card tbody td.actions .btn { flex: 1 1 100%; }
+}
+
+/* ---------- Landscape phones: reclaim vertical space ---------- */
+@media (max-height: 460px) and (max-width: 900px) {
+    .modal-dialog { max-height: 96dvh; }
+    .rail { padding-top: 14px; }
+}
+
+/* ---------- Print ---------- */
+@media print {
+    .rail, .topbar, .rail-scrim, .header-actions,
+    .pagination-bar, .bulk-bar, .filter-panel, .sort-bar { display: none !important; }
+
+    .main { padding: 0; }
+    .table-card { border: none; box-shadow: none; }
+    body { background: #fff; }
+    thead th { background: #fff; }
+}

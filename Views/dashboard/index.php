@@ -1,19 +1,25 @@
 <?php
 /**
  * Views/dashboard/index.php
- * Expects: $stats, $recentTransactions,
- *          $productsByCategory, $transactionsByType, $dbError
+ * Shell for the role-specific dashboards. Owns everything common to all
+ * three - page chrome, the greeting, the database-error banner - then
+ * hands the body to the partial for the signed-in role:
+ *
+ *   _technician.php  what I requested and what I'm still holding
+ *   _warehouse.php   stock health and the approval queue
+ *   _admin.php       everything Warehouse sees, plus org-level sections
+ *
+ * Expects (staff only, see DashboardController): $stats,
+ * $recentTransactions, $productsByCategory, $transactionsByType,
+ * $predictedStockouts. $dbError may be set for any role.
  */
 require_once __DIR__ . '/../../Models/Transaction.php';
+
 $pageTitle = 'Dashboard';
 $activeSection = 'dashboard';
-require __DIR__ . '/../partials/header.php';
+$viewer = current_user();
 
-$maxCategoryCount = max(array_column($productsByCategory, 'total') ?: [0, 1]);
-$maxTypeCount = max(array_values($transactionsByType) ?: [0, 1]);
-$maxCategoryCount = max($maxCategoryCount, 1);
-$maxTypeCount = max($maxTypeCount, 1);
-
+// Shared by the charts in the staff partials.
 $typeColors = [
     'return' => '#16A34A',
     'stock_in' => '#16A34A',
@@ -23,141 +29,45 @@ $typeColors = [
     'delivery' => '#0369A1',
     'transfer' => '#BE185D',
 ];
+
+// First name only - "Good afternoon, Roberto" reads better than the full
+// name, and the rail already shows who is signed in.
+$firstName = trim(explode(' ', trim((string) ($viewer['full_name'] ?? '')))[0]);
+$hour = (int) date('G');
+$greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
+
+require __DIR__ . '/../partials/header.php';
 ?>
         <div class="page-header">
             <div class="page-title-group">
-                <h1 class="page-title">Dashboard</h1>
+                <h1 class="page-title">
+                    <?= $firstName !== '' ? htmlspecialchars($greeting . ', ' . $firstName) : 'Dashboard' ?>
+                </h1>
             </div>
+            <?php if (has_role('technician')): ?>
+                <?php // A Technician's only create action. Without it, once
+                      // they have a request pending the empty-state CTA
+                      // disappears and the dashboard becomes read-only. ?>
+                <div class="header-actions">
+                    <a href="index.php?module=requests&action=index&tab=pending" class="btn btn-primary">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        New Request
+                    </a>
+                </div>
+            <?php endif; ?>
         </div>
 
         <?php if ($dbError): ?>
             <div class="alert alert-warning"><?= htmlspecialchars($dbError) ?></div>
         <?php endif; ?>
 
-        <div class="stat-grid">
-            <div class="stat-card">
-                <div class="stat-label">Total Products</div>
-                <div class="stat-value"><?= $stats['total_products'] ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Categories</div>
-                <div class="stat-value"><?= $stats['total_categories'] ?></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Total Transactions</div>
-                <div class="stat-value"><?= $stats['total_transactions'] ?></div>
-            </div>
-        </div>
-
-        <div class="chart-grid">
-            <div class="chart-card">
-                <div class="chart-title">Products by Category</div>
-                <?php if (empty($productsByCategory)): ?>
-                    <div class="empty-state">No categories yet.</div>
-                <?php else: ?>
-                    <div class="bar-chart">
-                        <?php foreach ($productsByCategory as $row): ?>
-                            <div class="bar-row">
-                                <div class="bar-label"><?= htmlspecialchars($row['category_name']) ?></div>
-                                <div class="bar-track">
-                                    <div class="bar-fill" style="width: <?= max((int)$row['total'] / $maxCategoryCount * 100, $row['total'] > 0 ? 4 : 0) ?>%;"></div>
-                                </div>
-                                <div class="bar-value"><?= (int) $row['total'] ?></div>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
-
-            <div class="chart-card">
-                <div class="chart-title">Transactions by Type</div>
-                <div class="bar-chart">
-                    <?php foreach ($transactionsByType as $type => $total): ?>
-                        <div class="bar-row">
-                            <div class="bar-label"><?= Transaction::typeLabel($type) ?></div>
-                            <div class="bar-track">
-                                <div class="bar-fill" style="width: <?= max($total / $maxTypeCount * 100, $total > 0 ? 4 : 0) ?>%; background: <?= $typeColors[$type] ?>;"></div>
-                            </div>
-                            <div class="bar-value"><?= $total ?></div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-        </div>
-
-        <div class="section-title">Predicted Stockouts</div>
-        <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Location</th>
-                        <th>Status</th>
-                        <th>Confidence</th>
-                        <th>Past Stockouts</th>
-                        <th>Frequency (per 30d)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($predictedStockouts)): ?>
-                        <tr class="empty-row"><td colspan="6">No stockout risk detected right now.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($predictedStockouts as $row): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($row['model']) ?></strong></td>
-                                <td class="cell-muted"><?= htmlspecialchars($row['location_name']) ?></td>
-                                <td>
-                                    <?php if ($row['status'] === 'actual'): ?>
-                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Out now</span>
-                                    <?php elseif ($row['days_until'] <= 0): ?>
-                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Overdue by <?= abs($row['days_until']) ?>d</span>
-                                    <?php else: ?>
-                                        <span class="badge" style="background:var(--warning-bg);color:var(--warning);">In ~<?= $row['days_until'] ?>d (<?= htmlspecialchars($row['predicted_date']) ?>)</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="cell-muted"><?= $row['confidence'] ? htmlspecialchars($row['confidence']) : '—' ?></td>
-                                <td class="cell-id"><?= (int) $row['stockout_count'] ?></td>
-                                <td class="cell-id"><?= $row['stockout_frequency'] ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="section-title">Recent Transactions</div>
-        <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Type</th>
-                        <th>Technician</th>
-                        <th>Quantity</th>
-                        <th>Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($recentTransactions)): ?>
-                        <tr class="empty-row"><td colspan="4">No transactions logged yet.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($recentTransactions as $t): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($t['model'] ?? 'Unknown product') ?></strong></td>
-                                <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
-                                <td class="cell-muted">
-                                    <?php if ($t['source'] === 'auto'): ?>
-                                        <span style="font-style:italic;">System</span>
-                                    <?php else: ?>
-                                        <?= htmlspecialchars($t['technician_name'] ?? '—') ?>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="cell-id"><?= (int) $t['quantity'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars(format_datetime($t['created_at'])) ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+<?php
+if (has_role('technician')) {
+    require __DIR__ . '/_technician.php';
+} elseif (has_role('admin')) {
+    require __DIR__ . '/_admin.php';
+} else {
+    require __DIR__ . '/_warehouse.php';
+}
+?>
 <?php require __DIR__ . '/../partials/footer.php'; ?>

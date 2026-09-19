@@ -18,9 +18,18 @@ function format_datetime(?string $value): string
     if ($value === null || trim($value) === '') {
         return '—';
     }
+    $value = trim($value);
     $timestamp = strtotime($value);
     if ($timestamp === false) {
         return $value;
     }
+
+    // DATE columns (transaction_date) carry no time, and rendering them
+    // through the datetime format stamped a meaningless "12:00 AM" on
+    // every row. Only show a time when the value actually has one.
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        return date('m-d-Y', $timestamp);
+    }
+
     return date('m-d-Y g:i A', $timestamp);
 }
