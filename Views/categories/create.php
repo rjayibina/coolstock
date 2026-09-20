@@ -26,7 +26,7 @@ require __DIR__ . '/../partials/header.php';
         <div class="form-card">
             <form method="POST" action="index.php?module=categories&action=create">
                 <label for="category_name">Category Name</label>
-                <input type="text" id="category_name" name="category_name"
+                <input type="text" id="category_name" name="category_name" maxlength="100"
                        placeholder="e.g. Refrigeration Parts"
                        value="<?= htmlspecialchars($_POST['category_name'] ?? '') ?>" required>
 

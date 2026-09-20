@@ -378,7 +378,9 @@ class Transaction
         return (int) $stmt->fetch()['total'];
     }
 
-    /** Count grouped by transaction_type - used for the Dashboard bar chart */
+    /** Count grouped by transaction_type. Not currently used by the
+     *  Dashboard (see dailyVolume() for its trend chart), kept as a
+     *  general-purpose breakdown for reporting. */
     public function countByType(): array
     {
         $query = "SELECT transaction_type, COUNT(*) AS total FROM {$this->table} GROUP BY transaction_type";
@@ -392,6 +394,32 @@ class Transaction
             $counts[$row['transaction_type']] = (int) $row['total'];
         }
         return $counts;
+    }
+
+    /** Dashboard line-chart data source: transaction volume per day over
+     *  the trailing window (today inclusive), zero-filled so a quiet day
+     *  still plots a point instead of leaving a gap in the line. Grouped
+     *  on DATE(created_at) - when a row was logged - to match "Recent
+     *  Stock Movement" above it on the same dashboard, rather than
+     *  transaction_date (when the movement happened), which is nullable
+     *  and only ever set on stock_out. */
+    public function dailyVolume(int $days = 14): array
+    {
+        $query = "SELECT DATE(created_at) AS day, COUNT(*) AS total
+                   FROM {$this->table}
+                   WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL :days DAY)
+                   GROUP BY DATE(created_at)";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':days', $days - 1, PDO::PARAM_INT);
+        $stmt->execute();
+        $byDay = array_column($stmt->fetchAll(), 'total', 'day');
+
+        $series = [];
+        for ($i = $days - 1; $i >= 0; $i--) {
+            $date = date('Y-m-d', strtotime("-{$i} days"));
+            $series[$date] = (int) ($byDay[$date] ?? 0);
+        }
+        return $series;
     }
 
     /** Usage Report data source: total units stocked OUT per product

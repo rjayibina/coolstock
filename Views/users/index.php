@@ -122,9 +122,13 @@ function userPageUrl(int $page): string
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> users</span>
                 <div class="pagination-controls">
                     <a href="<?= userPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= userPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= userPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= userPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>
@@ -139,10 +143,10 @@ function userPageUrl(int $page): string
                 <div class="modal-body">
                     <form method="POST" action="index.php?module=users&action=create">
                         <label for="au_full_name">Full Name</label>
-                        <input type="text" id="au_full_name" name="full_name" required>
+                        <input type="text" id="au_full_name" name="full_name" maxlength="150" required>
 
                         <label for="au_email">Email</label>
-                        <input type="email" id="au_email" name="email" required>
+                        <input type="email" id="au_email" name="email" maxlength="150" required>
 
                         <label for="au_role">Role</label>
                         <select id="au_role" name="role" required>
@@ -174,10 +178,10 @@ function userPageUrl(int $page): string
                         <input type="hidden" name="user_id" id="eu_user_id" value="">
 
                         <label for="eu_full_name">Full Name</label>
-                        <input type="text" id="eu_full_name" name="full_name" required>
+                        <input type="text" id="eu_full_name" name="full_name" maxlength="150" required>
 
                         <label for="eu_email">Email</label>
-                        <input type="email" id="eu_email" name="email" required>
+                        <input type="email" id="eu_email" name="email" maxlength="150" required>
 
                         <label for="eu_role">Role</label>
                         <select id="eu_role" name="role" required>

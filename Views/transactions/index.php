@@ -86,6 +86,53 @@ require __DIR__ . '/../partials/header.php';
             </form>
         </div>
 
+        <?php if ($currentItem !== '' || $currentType !== '' || $currentDateFrom !== '' || $currentDateTo !== ''): ?>
+            <?php
+            // One removable pill per active filter - see the same pattern
+            // in Views/products/index.php. Removing a chip clears only
+            // that one filter, keeping the rest (and the current sort).
+            $itemLabel = array_values(array_filter($items, fn($it) => (string) $it['item_id'] === (string) $currentItem))[0]['model'] ?? null;
+            $typeLabel = Transaction::MOVEMENT_FILTERS[$currentType] ?? null;
+            function transactionChipUrl(string $omit): string
+            {
+                global $currentItem, $currentType, $currentDateFrom, $currentDateTo, $currentSort;
+                $params = [
+                    'item_id' => $currentItem, 'type' => $currentType,
+                    'date_from' => $currentDateFrom, 'date_to' => $currentDateTo,
+                    'sort' => $currentSort,
+                ];
+                $params[$omit] = '';
+                return "index.php?module=transactions&action=index&" . http_build_query($params);
+            }
+            ?>
+            <div class="filter-chips">
+                <?php if ($currentItem !== '' && $itemLabel !== null): ?>
+                    <span class="filter-chip">
+                        Product: <?= htmlspecialchars($itemLabel) ?>
+                        <a href="<?= transactionChipUrl('item_id') ?>" class="filter-chip-remove" aria-label="Remove product filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+                <?php if ($currentType !== '' && $typeLabel !== null): ?>
+                    <span class="filter-chip">
+                        Remarks: <?= htmlspecialchars($typeLabel) ?>
+                        <a href="<?= transactionChipUrl('type') ?>" class="filter-chip-remove" aria-label="Remove remarks filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+                <?php if ($currentDateFrom !== ''): ?>
+                    <span class="filter-chip">
+                        From: <?= htmlspecialchars($currentDateFrom) ?>
+                        <a href="<?= transactionChipUrl('date_from') ?>" class="filter-chip-remove" aria-label="Remove start date filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+                <?php if ($currentDateTo !== ''): ?>
+                    <span class="filter-chip">
+                        To: <?= htmlspecialchars($currentDateTo) ?>
+                        <a href="<?= transactionChipUrl('date_to') ?>" class="filter-chip-remove" aria-label="Remove end date filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
         <?php if ($status === 'delivery_logged'): ?>
             <div class="alert alert-success"><?= $bulkCount ?> product line<?= $bulkCount === 1 ? '' : 's' ?> logged as delivered<?= !empty($_GET['reference']) ? ' — Order # ' . htmlspecialchars($_GET['reference']) : '' ?>.</div>
         <?php elseif ($status === 'transfer_logged'): ?>
@@ -159,9 +206,13 @@ require __DIR__ . '/../partials/header.php';
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> transactions</span>
                 <div class="pagination-controls">
                     <a href="<?= transactionPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= transactionPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= transactionPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= transactionPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>

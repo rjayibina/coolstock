@@ -7,8 +7,8 @@
  *
  * Included from Views/dashboard/index.php, which owns the page chrome
  * and supplies: $stats, $ops, $approvalQueue, $productsByCategory,
- * $transactionsByType, $predictedStockouts, $recentTransactions,
- * $typeColors.
+ * $transactionsByType, $dailyVolume, $predictedStockouts,
+ * $recentTransactions.
  */
 $requestsUrl = 'index.php?module=requests&action=index';
 $stockAlerts = count($predictedStockouts);
@@ -199,12 +199,12 @@ foreach ($predictedStockouts as $__row) {
             </div>
 
             <div class="chart-card">
-                <div class="chart-title">Transactions by Type</div>
-                <?php if (empty($transactionsByType)): ?>
-                    <div class="empty-state">No transactions yet.</div>
+                <div class="chart-title">Transaction Volume (Last 14 Days)</div>
+                <?php if (empty($dailyVolume) || array_sum($dailyVolume) === 0): ?>
+                    <div class="empty-state">No transactions in the last 14 days.</div>
                 <?php else: ?>
                     <div class="chart-canvas-wrap">
-                        <canvas id="transactionTypeChart"></canvas>
+                        <canvas id="transactionVolumeChart"></canvas>
                     </div>
                 <?php endif; ?>
             </div>
@@ -216,55 +216,71 @@ foreach ($predictedStockouts as $__row) {
         (function () {
             const categoryLabels = <?= json_encode(array_column($productsByCategory, 'category_name')) ?>;
             const categoryTotals = <?= json_encode(array_map('intval', array_column($productsByCategory, 'total'))) ?>;
-            const typeLabels = <?= json_encode(array_map(fn($t) => Transaction::typeLabel($t), array_keys($transactionsByType))) ?>;
-            const typeTotals = <?= json_encode(array_values(array_map('intval', $transactionsByType))) ?>;
-            const typeColorMap = <?= json_encode($typeColors) ?>;
-            const typeKeys = <?= json_encode(array_keys($transactionsByType)) ?>;
+            const volumeLabels = <?= json_encode(array_map(
+                fn($d) => date('M j', strtotime($d)),
+                array_keys($dailyVolume)
+            )) ?>;
+            const volumeTotals = <?= json_encode(array_values(array_map('intval', $dailyVolume))) ?>;
 
             const gridColor = 'rgba(20, 21, 43, 0.06)';
             const tickColor = '#6B6D85';
-            const commonScales = {
-                x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 12 } } },
-                y: { beginAtZero: true, ticks: { precision: 0, color: tickColor, font: { size: 12 } }, grid: { color: gridColor } },
-            };
-            const commonOptions = {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: commonScales,
-            };
+
+            // Cycled across as many category slices as exist - the fixed
+            // $typeColors map doesn't apply here since categories are
+            // user-defined and open-ended, unlike the seven transaction
+            // types it was built for.
+            const categoryPalette = ['#4C5FD5', '#16A34A', '#D97706', '#9333EA', '#0369A1', '#BE185D', '#DC2626', '#0D9488', '#7C3AED', '#65A30D'];
 
             const categoryCanvas = document.getElementById('categoryChart');
             if (categoryCanvas) {
                 new Chart(categoryCanvas, {
-                    type: 'bar',
+                    type: 'pie',
                     data: {
                         labels: categoryLabels,
                         datasets: [{
                             data: categoryTotals,
-                            backgroundColor: '#4C5FD5',
-                            borderRadius: 5,
-                            maxBarThickness: 42,
+                            backgroundColor: categoryLabels.map((_, i) => categoryPalette[i % categoryPalette.length]),
+                            borderColor: '#FFFFFF',
+                            borderWidth: 2,
                         }],
                     },
-                    options: commonOptions,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right', labels: { color: tickColor, font: { size: 12 }, boxWidth: 12 } },
+                        },
+                    },
                 });
             }
 
-            const typeCanvas = document.getElementById('transactionTypeChart');
-            if (typeCanvas) {
-                new Chart(typeCanvas, {
-                    type: 'bar',
+            const volumeCanvas = document.getElementById('transactionVolumeChart');
+            if (volumeCanvas) {
+                new Chart(volumeCanvas, {
+                    type: 'line',
                     data: {
-                        labels: typeLabels,
+                        labels: volumeLabels,
                         datasets: [{
-                            data: typeTotals,
-                            backgroundColor: typeKeys.map(k => typeColorMap[k] || '#4C5FD5'),
-                            borderRadius: 5,
-                            maxBarThickness: 42,
+                            data: volumeTotals,
+                            borderColor: '#4C5FD5',
+                            backgroundColor: 'rgba(76, 95, 213, 0.12)',
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 3,
+                            pointBackgroundColor: '#4C5FD5',
+                            pointBorderColor: '#FFFFFF',
+                            pointBorderWidth: 1.5,
                         }],
                     },
-                    options: commonOptions,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: tickColor, font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+                            y: { beginAtZero: true, ticks: { precision: 0, color: tickColor, font: { size: 12 } }, grid: { color: gridColor } },
+                        },
+                    },
                 });
             }
         })();

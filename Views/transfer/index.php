@@ -53,7 +53,7 @@ $oldQuantities = $old['quantities'] ?? [];
                 </select>
 
                 <label for="technician_name">Moved By</label>
-                <input type="text" id="technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz"
+                <input type="text" id="technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100"
                        value="<?= htmlspecialchars($old['technician_name'] ?? '') ?>" required>
 
                 <label for="transaction_date">Transfer Date</label>

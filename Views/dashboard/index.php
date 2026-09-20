@@ -11,24 +11,13 @@
  *
  * Expects (staff only, see DashboardController): $stats,
  * $recentTransactions, $productsByCategory, $transactionsByType,
- * $predictedStockouts. $dbError may be set for any role.
+ * $dailyVolume, $predictedStockouts. $dbError may be set for any role.
  */
 require_once __DIR__ . '/../../Models/Transaction.php';
 
 $pageTitle = 'Dashboard';
 $activeSection = 'dashboard';
 $viewer = current_user();
-
-// Shared by the charts in the staff partials.
-$typeColors = [
-    'return' => '#16A34A',
-    'stock_in' => '#16A34A',
-    'item_request' => '#9333EA',
-    'borrow' => '#D97706',
-    'stock_out' => '#4C5FD5',
-    'delivery' => '#0369A1',
-    'transfer' => '#BE185D',
-];
 
 // First name only - "Good afternoon, Roberto" reads better than the full
 // name, and the rail already shows who is signed in.

@@ -47,6 +47,10 @@ class ItemTypeController
             header("Location: index.php?module=itemtypes&action=index&status=name_required");
             exit;
         }
+        if (strlen($name) > 100) {
+            header("Location: index.php?module=itemtypes&action=index&status=name_too_long");
+            exit;
+        }
 
         $this->itemType->type_name = $name;
         $this->itemType->requires_serial = isset($_POST['requires_serial']);
@@ -73,6 +77,10 @@ class ItemTypeController
 
         if ($name === '') {
             header("Location: index.php?module=itemtypes&action=index&status=name_required");
+            exit;
+        }
+        if (strlen($name) > 100) {
+            header("Location: index.php?module=itemtypes&action=index&status=name_too_long");
             exit;
         }
 

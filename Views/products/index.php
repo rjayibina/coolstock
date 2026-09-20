@@ -46,7 +46,8 @@ require __DIR__ . '/../partials/header.php';
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Add Product
                     </button>
-                    <button type="button" class="btn btn-primary split-btn-toggle" onclick="document.getElementById('addProductMenu').classList.toggle('open')">
+                    <button type="button" class="btn btn-primary split-btn-toggle" aria-label="More product actions" aria-haspopup="true" aria-expanded="false" aria-controls="addProductMenu"
+                            onclick="const open = document.getElementById('addProductMenu').classList.toggle('open'); this.setAttribute('aria-expanded', open);">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                     <div id="addProductMenu" class="dropdown-menu">
@@ -61,7 +62,7 @@ require __DIR__ . '/../partials/header.php';
                     </div>
                 </div>
 
-                <button type="button" class="help-btn" onclick="document.getElementById('helpModal').classList.add('open')" title="How Products works">?</button>
+                <button type="button" class="help-btn" onclick="document.getElementById('helpModal').classList.add('open')" title="How Products works" aria-label="How Products works">?</button>
             </div>
         </div>
 
@@ -94,6 +95,35 @@ require __DIR__ . '/../partials/header.php';
                 <?php endif; ?>
             </form>
         </div>
+
+        <?php if ($currentCategory !== '' || $currentLocation !== ''): ?>
+            <?php
+            // One removable pill per active filter, so it's visible which
+            // filters are narrowing the list without having to reopen the
+            // panel and read each dropdown. Removing a chip clears only
+            // that filter and keeps the others (and the current sort).
+            $categoryLabel = $currentCategory === 'none'
+                ? 'Uncategorized'
+                : (array_values(array_filter($categories, fn($c) => (string) $c['category_id'] === (string) $currentCategory))[0]['category_name'] ?? null);
+            $locationLabel = $currentLocation === 'none'
+                ? 'Unassigned'
+                : (array_values(array_filter($locations, fn($l) => (string) $l['location_id'] === (string) $currentLocation))[0]['location_name'] ?? null);
+            ?>
+            <div class="filter-chips">
+                <?php if ($categoryLabel !== null): ?>
+                    <span class="filter-chip">
+                        Category: <?= htmlspecialchars($categoryLabel) ?>
+                        <a href="index.php?module=products&action=index&location_id=<?= urlencode($currentLocation) ?>&sort=<?= urlencode($currentSort) ?>" class="filter-chip-remove" aria-label="Remove category filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+                <?php if ($locationLabel !== null): ?>
+                    <span class="filter-chip">
+                        Location: <?= htmlspecialchars($locationLabel) ?>
+                        <a href="index.php?module=products&action=index&category_id=<?= urlencode($currentCategory) ?>&sort=<?= urlencode($currentSort) ?>" class="filter-chip-remove" aria-label="Remove location filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
 
         <?php if ($status === 'created'): ?>
             <div class="alert alert-success">Product created successfully.</div>
@@ -190,9 +220,13 @@ require __DIR__ . '/../partials/header.php';
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> products</span>
                 <div class="pagination-controls">
                     <a href="<?= productPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= productPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= productPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= productPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>
@@ -242,7 +276,7 @@ require __DIR__ . '/../partials/header.php';
                 <div class="modal-body">
                     <form method="POST" id="addProductForm" action="index.php?module=products&action=create">
                         <label for="ap_model">Model</label>
-                        <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM" required>
+                        <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM" maxlength="100" required>
 
                         <label for="ap_category_id">Category</label>
                         <select id="ap_category_id" name="category_id" required>
@@ -283,22 +317,22 @@ require __DIR__ . '/../partials/header.php';
                             <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
 
                             <label for="ap_energy_rating">Energy Rating</label>
-                            <input type="text" id="ap_energy_rating" name="energy_rating" placeholder="e.g. 5 Star">
+                            <input type="text" id="ap_energy_rating" name="energy_rating" placeholder="e.g. 5 Star" maxlength="20">
 
                             <label for="ap_monthly_consumption">Monthly Consumption (kWh)</label>
                             <input type="number" id="ap_monthly_consumption" name="monthly_consumption" min="0" step="0.01" placeholder="e.g. 120.50">
 
                             <label for="ap_cooling_capacity">Cooling Capacity</label>
-                            <input type="text" id="ap_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)">
+                            <input type="text" id="ap_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)" maxlength="50">
 
                             <label for="ap_refrigerant">Refrigerant</label>
-                            <input type="text" id="ap_refrigerant" name="refrigerant" placeholder="e.g. R32">
+                            <input type="text" id="ap_refrigerant" name="refrigerant" placeholder="e.g. R32" maxlength="50">
 
                             <label for="ap_installation_type">Installation Type</label>
-                            <input type="text" id="ap_installation_type" name="installation_type" placeholder="e.g. Wall Mounted">
+                            <input type="text" id="ap_installation_type" name="installation_type" placeholder="e.g. Wall Mounted" maxlength="50">
 
                             <label for="ap_power_input">Power Input</label>
-                            <input type="text" id="ap_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz">
+                            <input type="text" id="ap_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz" maxlength="50">
 
                             <label for="ap_year">Year</label>
                             <input type="number" id="ap_year" name="year" min="1990" max="2100" step="1" placeholder="e.g. 2024">
@@ -332,7 +366,7 @@ require __DIR__ . '/../partials/header.php';
                         </select>
 
                         <label for="ep_model">Model</label>
-                        <input type="text" id="ep_model" name="model" required>
+                        <input type="text" id="ep_model" name="model" maxlength="100" required>
 
                         <label for="ep_brand_id">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
                         <select id="ep_brand_id" name="brand_id">
@@ -354,22 +388,22 @@ require __DIR__ . '/../partials/header.php';
                             <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
 
                             <label for="ep_energy_rating">Energy Rating</label>
-                            <input type="text" id="ep_energy_rating" name="energy_rating" placeholder="e.g. 5 Star">
+                            <input type="text" id="ep_energy_rating" name="energy_rating" placeholder="e.g. 5 Star" maxlength="20">
 
                             <label for="ep_monthly_consumption">Monthly Consumption (kWh)</label>
                             <input type="number" id="ep_monthly_consumption" name="monthly_consumption" min="0" step="0.01" placeholder="e.g. 120.50">
 
                             <label for="ep_cooling_capacity">Cooling Capacity</label>
-                            <input type="text" id="ep_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)">
+                            <input type="text" id="ep_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)" maxlength="50">
 
                             <label for="ep_refrigerant">Refrigerant</label>
-                            <input type="text" id="ep_refrigerant" name="refrigerant" placeholder="e.g. R32">
+                            <input type="text" id="ep_refrigerant" name="refrigerant" placeholder="e.g. R32" maxlength="50">
 
                             <label for="ep_installation_type">Installation Type</label>
-                            <input type="text" id="ep_installation_type" name="installation_type" placeholder="e.g. Wall Mounted">
+                            <input type="text" id="ep_installation_type" name="installation_type" placeholder="e.g. Wall Mounted" maxlength="50">
 
                             <label for="ep_power_input">Power Input</label>
-                            <input type="text" id="ep_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz">
+                            <input type="text" id="ep_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz" maxlength="50">
 
                             <label for="ep_year">Year</label>
                             <input type="number" id="ep_year" name="year" min="1990" max="2100" step="1" placeholder="e.g. 2024">
@@ -405,7 +439,7 @@ require __DIR__ . '/../partials/header.php';
                         </select>
 
                         <label for="sm_technician_name">Released By</label>
-                        <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
+                        <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100" required>
 
                         <label for="sm_transaction_date">Stock Date</label>
                         <input type="date" id="sm_transaction_date" name="transaction_date" required>
@@ -450,7 +484,7 @@ require __DIR__ . '/../partials/header.php';
                         </select>
 
                         <label for="bsm_technician_name">Released By</label>
-                        <input type="text" id="bsm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" required>
+                        <input type="text" id="bsm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100" required>
 
                         <label for="bsm_transaction_date">Stock Date</label>
                         <input type="date" id="bsm_transaction_date" name="transaction_date" required>

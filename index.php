@@ -5,6 +5,14 @@
  * ?module=dashboard|categories|products|transactions|brands|itemtypes|locations|delivery|transfer|users|auth|requests|reports
  * ?action=index|create|edit|delete
  */
+
+// Every date()/strtotime() call in the app (transaction dates, the
+// dashboard greeting, delivery/transfer/request timestamps) is relative
+// to whatever timezone PHP defaults to on the host, which isn't
+// guaranteed to match the business's. Pin it here, once, so a server
+// left on its default TZ can't stamp a record a day off near midnight.
+date_default_timezone_set('Asia/Manila');
+
 require_once __DIR__ . '/Helpers/auth.php';
 require_once __DIR__ . '/Controllers/DashboardController.php';
 require_once __DIR__ . '/Controllers/CategoryController.php';

@@ -51,6 +51,8 @@ class CategoryController
 
             if ($name === '') {
                 $error = "Category name is required.";
+            } elseif (strlen($name) > 100) {
+                $error = "Category name must be at most 100 characters.";
             } else {
                 $this->category->category_name = $name;
 
@@ -81,6 +83,9 @@ class CategoryController
 
             if ($name === '') {
                 $error = "Category name is required.";
+                $data = ['category_id' => $id, 'category_name' => $name];
+            } elseif (strlen($name) > 100) {
+                $error = "Category name must be at most 100 characters.";
                 $data = ['category_id' => $id, 'category_name' => $name];
             } else {
                 $this->category->category_id = $id;

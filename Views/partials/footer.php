@@ -5,11 +5,116 @@
 /**
  * Views/partials/footer.php
  * Shell behaviour shared by every signed-in page: the mobile navigation
- * drawer, and the captions that let wide tables re-flow into cards on a
- * phone. Both are no-ops on desktop.
+ * drawer, flash messages promoted to dismissible toasts, form validation
+ * states, modal keyboard accessibility, and the captions that let wide
+ * tables re-flow into cards on a phone. All are no-ops where they don't
+ * apply.
  */
 (function () {
     'use strict';
+
+    /* ---------- Modal accessibility: focus trap + focus return ----------
+     * Every view opens/closes its own modals by toggling the .open class
+     * (via its own openXModal()/closeModal() functions - there are over
+     * a dozen, one set per page). Rather than editing each one, this
+     * watches every .modal-overlay for that class change and adds the
+     * three things none of them had: focus moves into the dialog when it
+     * opens, Tab is trapped inside it while open (a mouse user can click
+     * away, but a keyboard user could otherwise tab straight into the
+     * page behind it), and focus returns to whatever opened it on close -
+     * including on Escape, which is now handled here for every modal,
+     * not just the few pages that had their own listener for it. */
+    function focusableIn(container) {
+        return Array.prototype.filter.call(
+            container.querySelectorAll(
+                'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            ),
+            function (el) { return el.offsetParent !== null; } // skip hidden branches (e.g. a collapsed section)
+        );
+    }
+
+    document.querySelectorAll('.modal-overlay').forEach(function (modal) {
+        var wasOpen = modal.classList.contains('open');
+        var trigger = null;
+
+        new MutationObserver(function () {
+            var isOpen = modal.classList.contains('open');
+            if (isOpen && !wasOpen) {
+                trigger = document.activeElement;
+                var focusable = focusableIn(modal);
+                (focusable[0] || modal).focus();
+            } else if (!isOpen && wasOpen) {
+                if (trigger && document.body.contains(trigger)) { trigger.focus(); }
+                trigger = null;
+            }
+            wasOpen = isOpen;
+        }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+        modal.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                modal.classList.remove('open');
+                return;
+            }
+            if (e.key !== 'Tab') { return; }
+
+            var focusable = focusableIn(modal);
+            if (!focusable.length) { return; }
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        });
+    });
+
+    /* ---------- Flash messages as toasts ----------
+     * A page-level .alert (the "created/updated/failed" banner a
+     * redirect renders) is moved into a fixed stack and given a close
+     * button; a success message also clears itself after a few seconds.
+     * An .alert used inside a modal - a contextual, in-place message
+     * like the empty Item Request search results - is left exactly
+     * where its view put it: only alerts outside .modal-overlay move. */
+    var pageAlerts = Array.prototype.filter.call(
+        document.querySelectorAll('.alert'),
+        function (el) { return !el.closest('.modal-overlay'); }
+    );
+
+    if (pageAlerts.length) {
+        var stack = document.createElement('div');
+        stack.className = 'toast-stack';
+        document.body.appendChild(stack);
+
+        pageAlerts.forEach(function (alert) {
+            stack.appendChild(alert); // moves the existing node, not a copy
+
+            var closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'toast-close';
+            closeBtn.setAttribute('aria-label', 'Dismiss message');
+            closeBtn.innerHTML = '&times;';
+            alert.appendChild(closeBtn);
+
+            var dismissed = false;
+            function dismiss() {
+                if (dismissed) { return; }
+                dismissed = true;
+                alert.classList.add('toast-leaving');
+                alert.addEventListener('animationend', function () { alert.remove(); }, { once: true });
+            }
+            closeBtn.addEventListener('click', dismiss);
+
+            // Only a success toast clears itself - a warning or error may
+            // name something the visitor still needs to act on or note.
+            if (alert.classList.contains('alert-success')) {
+                setTimeout(dismiss, 5000);
+            }
+        });
+    }
 
     /* ---------- Mobile navigation drawer ---------- */
     var rail = document.getElementById('railNav');
@@ -75,6 +180,116 @@
      * show it. Purely additive - no nodes are moved or rewritten, so
      * inline handlers and existing listeners are untouched.
      */
+    /* ---------- Form validation states + submit loading state ----------
+     * Progressive enhancement over the server's own validation (the
+     * page-level .alert-error banner stays the source of truth): native
+     * HTML5 constraint validation (required, type, min/max, pattern)
+     * drives an inline .field-error message and an .is-invalid border
+     * instead of the browser's own tooltip, which looks and behaves
+     * differently per browser. A submit that passes validation disables
+     * its button and shows a spinner via .is-loading, so a slow request
+     * (or an impatient double-click) doesn't look like a dead click.
+     * novalidate is only added here, at runtime, so a page still submits
+     * normally if this script fails to load. */
+    var FRIENDLY_MESSAGE = {
+        valueMissing: 'This field is required.',
+        typeMismatch: 'Enter a valid value.',
+        rangeUnderflow: function (f) { return 'Value must be at least ' + f.min + '.'; },
+        rangeOverflow: function (f) { return 'Value must be at most ' + f.max + '.'; },
+        tooShort: function (f) { return 'Must be at least ' + f.minLength + ' characters.'; },
+        tooLong: function (f) { return 'Must be at most ' + f.maxLength + ' characters.'; },
+        patternMismatch: function (f) { return f.title || 'Enter a value in the expected format.'; },
+    };
+
+    function messageFor(field) {
+        var v = field.validity;
+        for (var key in FRIENDLY_MESSAGE) {
+            if (v[key]) {
+                var m = FRIENDLY_MESSAGE[key];
+                return typeof m === 'function' ? m(field) : m;
+            }
+        }
+        return field.validationMessage || 'Check this field.';
+    }
+
+    function isValidatable(field) {
+        var tag = field.tagName;
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') { return false; }
+        if (field.type === 'hidden' || field.type === 'submit' || field.type === 'button' || field.disabled) { return false; }
+        return true;
+    }
+
+    function clearFieldError(field) {
+        field.classList.remove('is-invalid');
+        field.removeAttribute('aria-invalid');
+        var next = field.nextElementSibling;
+        if (next && next.classList.contains('field-error')) { next.remove(); }
+    }
+
+    function showFieldError(field) {
+        field.classList.add('is-invalid');
+        field.setAttribute('aria-invalid', 'true');
+        var next = field.nextElementSibling;
+        if (!next || !next.classList.contains('field-error')) {
+            next = document.createElement('span');
+            next.className = 'field-error';
+            field.insertAdjacentElement('afterend', next);
+        }
+        next.textContent = messageFor(field);
+    }
+
+    function validateField(field) {
+        if (!isValidatable(field)) { return true; }
+        if (field.checkValidity()) {
+            clearFieldError(field);
+            return true;
+        }
+        showFieldError(field);
+        return false;
+    }
+
+    document.querySelectorAll('form').forEach(function (form) {
+        form.setAttribute('novalidate', 'novalidate');
+
+        // Real-time feedback: validate as the visitor leaves a field, and
+        // clear the error the moment a correction makes it valid again
+        // rather than waiting for the next blur.
+        form.addEventListener('blur', function (e) {
+            if (isValidatable(e.target)) { validateField(e.target); }
+        }, true);
+        form.addEventListener('input', function (e) {
+            if (isValidatable(e.target) && e.target.classList.contains('is-invalid')) {
+                validateField(e.target);
+            }
+        });
+        form.addEventListener('change', function (e) {
+            if (isValidatable(e.target) && e.target.classList.contains('is-invalid')) {
+                validateField(e.target);
+            }
+        });
+
+        form.addEventListener('submit', function (e) {
+            var fields = Array.prototype.slice.call(form.querySelectorAll('input, select, textarea'));
+            var firstInvalid = null;
+            fields.forEach(function (field) {
+                if (!validateField(field) && !firstInvalid) { firstInvalid = field; }
+            });
+
+            if (firstInvalid) {
+                e.preventDefault();
+                firstInvalid.scrollIntoView({ block: 'center' });
+                firstInvalid.focus();
+                return;
+            }
+
+            var submitBtn = e.submitter || form.querySelector('button[type="submit"]');
+            if (submitBtn && submitBtn.tagName === 'BUTTON') {
+                submitBtn.classList.add('is-loading');
+                submitBtn.disabled = true;
+            }
+        });
+    });
+
     document.querySelectorAll('.table-card > table').forEach(function (table) {
         var headers = Array.prototype.map.call(
             table.querySelectorAll('thead th'),

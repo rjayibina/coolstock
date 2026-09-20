@@ -377,6 +377,17 @@ class InventoryItemController
         'year' => 'Year',
     ];
 
+    // Mirrors the VARCHAR lengths in database/coolstock_full_setup.sql -
+    // matches the maxlength on the inputs in Views/products/index.php,
+    // enforced again here since the client-side limit is only advisory.
+    private const SPEC_FIELD_MAXLEN = [
+        'energy_rating' => 20,
+        'cooling_capacity' => 50,
+        'refrigerant' => 50,
+        'installation_type' => 50,
+        'power_input' => 50,
+    ];
+
     /** Shared validation for create + edit */
     /** $isCreate adds two checks that only apply when adding a brand-new
      *  product, never when editing an existing one: Item Type and Location
@@ -386,6 +397,9 @@ class InventoryItemController
     {
         if (trim($input['model'] ?? '') === '') {
             return "Model is required.";
+        }
+        if (strlen($input['model']) > 100) {
+            return "Model must be at most 100 characters.";
         }
         if (empty($input['category_id'])) {
             return "Category is required.";
@@ -410,6 +424,12 @@ class InventoryItemController
             }
             if (!is_numeric($input['monthly_consumption'] ?? '')) {
                 return "Monthly Consumption must be a number.";
+            }
+        }
+        foreach (self::SPEC_FIELD_MAXLEN as $field => $maxLen) {
+            if (isset($input[$field]) && strlen((string) $input[$field]) > $maxLen) {
+                $label = self::SPEC_FIELDS[$field];
+                return "$label must be at most $maxLen characters.";
             }
         }
         if (!empty($input['year']) && (!is_numeric($input['year']) || $input['year'] < 1990 || $input['year'] > (int) date('Y') + 1)) {

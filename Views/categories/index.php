@@ -69,8 +69,7 @@ function categoryPageUrl(int $page): string
         <form method="POST" id="bulkCategoryForm">
             <div id="bulkBar" class="bulk-bar">
                 <span><strong id="bulkCount">0</strong> selected</span>
-                <button type="submit" formaction="index.php?module=categories&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected categories? Any category still holding products will be skipped.');">Delete Selected</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDeleteCategoryModal()">Delete Selected</button>
             </div>
 
             <div class="table-card">
@@ -115,9 +114,13 @@ function categoryPageUrl(int $page): string
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> categories</span>
                 <div class="pagination-controls">
                     <a href="<?= categoryPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= categoryPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= categoryPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= categoryPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>
@@ -132,7 +135,7 @@ function categoryPageUrl(int $page): string
                 <div class="modal-body">
                     <form method="POST" action="index.php?module=categories&action=create">
                         <label for="ac_category_name">Category Name</label>
-                        <input type="text" id="ac_category_name" name="category_name"
+                        <input type="text" id="ac_category_name" name="category_name" maxlength="100"
                                placeholder="e.g. Refrigeration Parts" required>
 
                         <div class="form-actions">
@@ -155,7 +158,7 @@ function categoryPageUrl(int $page): string
                         <input type="hidden" name="category_id" id="ec_category_id" value="">
 
                         <label for="ec_category_name">Category Name</label>
-                        <input type="text" id="ec_category_name" name="category_name" required>
+                        <input type="text" id="ec_category_name" name="category_name" maxlength="100" required>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Category</button>
@@ -182,6 +185,24 @@ function categoryPageUrl(int $page): string
             </div>
         </div>
 
+        <?php // Bulk delete used a bare confirm() before - same destructive
+              // action, same styled modal as the single-row delete above. ?>
+        <div id="bulkDeleteCategoryModal" class="modal-overlay" onclick="if(event.target===this) closeModal('bulkDeleteCategoryModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Delete Categories</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('bulkDeleteCategoryModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Delete <strong id="bdc_count">0</strong> selected <span id="bdc_noun">categories</span>? Any category still holding products will be skipped. This cannot be undone.</p>
+                    <div class="form-actions">
+                        <button type="submit" form="bulkCategoryForm" formaction="index.php?module=categories&action=bulkDelete" class="btn btn-danger-solid">Delete</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('bulkDeleteCategoryModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
         const categoriesData = <?= json_encode(array_column($categories, null, 'category_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
@@ -191,6 +212,14 @@ function categoryPageUrl(int $page): string
 
         function openAddCategoryModal() {
             document.getElementById('addCategoryModal').classList.add('open');
+        }
+
+        function openBulkDeleteCategoryModal() {
+            const count = document.querySelectorAll('.category-check:checked').length;
+            if (count === 0) { return; }
+            document.getElementById('bdc_count').textContent = count;
+            document.getElementById('bdc_noun').textContent = count === 1 ? 'category' : 'categories';
+            document.getElementById('bulkDeleteCategoryModal').classList.add('open');
         }
 
         function openEditCategoryModal(id) {

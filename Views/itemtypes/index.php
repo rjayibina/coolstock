@@ -54,6 +54,8 @@ function itemTypePageUrl(int $page): string
             <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it still has' : 'they still have' ?> products assigned.</div>
         <?php elseif ($status === 'name_required'): ?>
             <div class="alert alert-warning">Item type name is required.</div>
+        <?php elseif ($status === 'name_too_long'): ?>
+            <div class="alert alert-warning">Item type name must be at most 100 characters.</div>
         <?php elseif ($status === 'error'): ?>
             <div class="alert alert-warning">Something went wrong. Please try again.</div>
         <?php endif; ?>
@@ -73,8 +75,7 @@ function itemTypePageUrl(int $page): string
         <form method="POST" id="bulkItemTypeForm">
             <div id="bulkBar" class="bulk-bar">
                 <span><strong id="bulkCount">0</strong> selected</span>
-                <button type="submit" formaction="index.php?module=itemtypes&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected item types? Any item type still holding products will be skipped.');">Delete Selected</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDeleteItemTypeModal()">Delete Selected</button>
             </div>
 
             <div class="table-card">
@@ -121,9 +122,13 @@ function itemTypePageUrl(int $page): string
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> item types</span>
                 <div class="pagination-controls">
                     <a href="<?= itemTypePageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= itemTypePageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= itemTypePageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= itemTypePageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>
@@ -138,9 +143,9 @@ function itemTypePageUrl(int $page): string
                 <div class="modal-body">
                     <form method="POST" id="addItemTypeForm" action="index.php?module=itemtypes&action=create">
                         <label for="ait_type_name">Name</label>
-                        <input type="text" id="ait_type_name" name="type_name" placeholder="e.g. Asset, Consumable" required>
+                        <input type="text" id="ait_type_name" name="type_name" placeholder="e.g. Asset, Consumable" maxlength="100" required>
 
-                        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin:14px 0;font-weight:400;">
+                        <label class="checkbox-label">
                             <input type="checkbox" id="ait_requires_serial" name="requires_serial" checked>
                             Requires a serial number on Stock Out
                         </label>
@@ -165,9 +170,9 @@ function itemTypePageUrl(int $page): string
                         <input type="hidden" name="item_type_id" id="eit_item_type_id" value="">
 
                         <label for="eit_type_name">Name</label>
-                        <input type="text" id="eit_type_name" name="type_name" required>
+                        <input type="text" id="eit_type_name" name="type_name" maxlength="100" required>
 
-                        <label class="checkbox-label" style="display:flex;align-items:center;gap:8px;margin:14px 0;font-weight:400;">
+                        <label class="checkbox-label">
                             <input type="checkbox" id="eit_requires_serial" name="requires_serial">
                             Requires a serial number on Stock Out
                         </label>
@@ -197,6 +202,24 @@ function itemTypePageUrl(int $page): string
             </div>
         </div>
 
+        <?php // Bulk delete used a bare confirm() before - same destructive
+              // action, same styled modal as the single-row delete above. ?>
+        <div id="bulkDeleteItemTypeModal" class="modal-overlay" onclick="if(event.target===this) closeModal('bulkDeleteItemTypeModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Delete Item Types</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('bulkDeleteItemTypeModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Delete <strong id="bdit_count">0</strong> selected <span id="bdit_noun">item types</span>? Any item type still holding products will be skipped. This cannot be undone.</p>
+                    <div class="form-actions">
+                        <button type="submit" form="bulkItemTypeForm" formaction="index.php?module=itemtypes&action=bulkDelete" class="btn btn-danger-solid">Delete</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('bulkDeleteItemTypeModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
         const itemTypesData = <?= json_encode(array_column($itemTypes, null, 'item_type_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
@@ -208,6 +231,14 @@ function itemTypePageUrl(int $page): string
             document.getElementById('addItemTypeForm')?.reset();
             document.getElementById('ait_requires_serial').checked = true;
             document.getElementById('addItemTypeModal').classList.add('open');
+        }
+
+        function openBulkDeleteItemTypeModal() {
+            const count = document.querySelectorAll('.itemtype-check:checked').length;
+            if (count === 0) { return; }
+            document.getElementById('bdit_count').textContent = count;
+            document.getElementById('bdit_noun').textContent = count === 1 ? 'item type' : 'item types';
+            document.getElementById('bulkDeleteItemTypeModal').classList.add('open');
         }
 
         function openEditItemTypeModal(id) {

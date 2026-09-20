@@ -3,20 +3,36 @@
 :root {
     --sidebar-bg: #4C5FD5;
     --sidebar-bg-active: rgba(255, 255, 255, 0.14);
-    --sidebar-text: rgba(255, 255, 255, 0.78);
+    /* 0.78 measured 3.97:1 against --sidebar-bg - under the 4.5:1 AA
+       floor for the nav item labels it colors. Raised to clear it with
+       margin (verified: 4.70:1). */
+    --sidebar-text: rgba(255, 255, 255, 0.90);
     --sidebar-text-active: #ffffff;
     --page-bg: #F5F6FB;
     --card-bg: #ffffff;
     --border: #E7E8F0;
     --text-dark: #14152B;
-    --text-muted: #8A8CA3;
+    /* Was #8A8CA3 (3.30:1 on --card-bg, 3.06:1 on --page-bg) - failed AA
+       for the secondary text it's used for everywhere (.text-muted,
+       .cell-muted, .detail-label, sort/filter labels, empty states).
+       Darkened to clear 4.5:1 on both backgrounds with margin (verified:
+       5.50:1 / 5.09:1), same hue. */
+    --text-muted: #666879;
     --accent: #4C5FD5;
     --accent-dark: #3B4CBF;
-    --success: #16A34A;
+    /* Was #16A34A - failed AA both as text on --success-bg (3.02:1) and
+       as white-on-it for .btn-success (3.30:1). Darkened to clear both
+       (verified: 4.67:1 / 5.10:1). */
+    --success: #117f3a;
     --success-bg: #E9F9EF;
-    --warning: #D97706;
+    /* Was #D97706 - failed AA as text on --warning-bg (2.90:1). Darkened
+       to clear it (verified: 4.71:1). */
+    --warning: #a55a05;
     --warning-bg: #FEF3E2;
-    --danger: #DC2626;
+    /* Was #DC2626 - failed AA as text on --danger-bg (4.26:1, just under
+       the 4.5:1 floor). Darkened with margin (verified: 5.07:1); white
+       text on it for .btn-danger-solid only improves (5.75:1). */
+    --danger: #c62222;
     --danger-bg: #FDEDED;
     --radius: 10px;
 
@@ -349,6 +365,42 @@ body {
     pointer-events: none;
 }
 
+/* Loading state - set by the shared submit handler in footer.php so a
+ * slow request (or a double-click) gets a visible pending state instead
+ * of a button that looks inert. Overrides the dimmed [disabled] look
+ * above since the spinner needs full opacity to read clearly. */
+.btn.is-loading {
+    opacity: 1;
+    color: transparent !important;
+    pointer-events: none;
+    position: relative;
+}
+
+.btn.is-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: btn-spin 0.6s linear infinite;
+}
+
+.btn-secondary.is-loading::after,
+.btn-edit.is-loading::after,
+.btn-danger.is-loading::after {
+    border-color: rgba(20, 21, 43, 0.15);
+    border-top-color: var(--text-dark);
+}
+
+@keyframes btn-spin {
+    to { transform: rotate(360deg); }
+}
+
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent-dark); }
 
@@ -545,6 +597,67 @@ tbody tr:hover { background: #FAFAFD; }
 .alert-error { background: var(--danger-bg); color: var(--danger); }
 .alert-warning { background: var(--warning-bg); color: var(--warning); }
 
+/* ---------- Flash messages as toasts ----------
+ * The shared script in footer.php moves any page-level .alert (a
+ * redirect's "created/updated/failed" message) into this fixed stack,
+ * leaving an .alert used inside a modal - a contextual, in-place
+ * message like the empty Item Request search results - exactly where
+ * the markup put it. Only the moved ones get the floating treatment,
+ * scoped through .toast-stack so the base .alert styling is untouched
+ * everywhere else. */
+.toast-stack {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: calc(100% - 40px);
+    max-width: 380px;
+    pointer-events: none;
+}
+
+.toast-stack .alert {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 0;
+    box-shadow: var(--shadow-lg);
+    background: #fff;
+    pointer-events: auto;
+    animation: toast-in 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.toast-stack .alert.toast-leaving {
+    animation: toast-out 0.18s ease both;
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateX(24px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes toast-out {
+    to { opacity: 0; transform: translateX(24px); }
+}
+
+.toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.55;
+    font-size: 17px;
+    line-height: 1;
+    padding: 0 0 0 4px;
+    font-family: inherit;
+}
+
+.toast-close:hover { opacity: 1; }
+
 /* ---------- Callout (dashboard call-to-action) ----------
    A banner for the one thing this role should deal with first, with the
    action attached. Louder than .alert (which reports what just
@@ -648,6 +761,47 @@ form textarea:focus {
 
 form select { cursor: pointer; }
 form textarea { resize: vertical; min-height: 90px; }
+
+/* Was referenced (Views/itemtypes/index.php's "Requires a serial
+   number" checkbox) but never defined - every instance carried the
+   same rules as an inline style instead. Defined here so the class
+   does what its name says and the inline style can go. */
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 14px 0;
+    font-weight: 400;
+}
+
+/* ---------- Field validation states ----------
+ * .is-invalid and .field-error are applied by the shared client-side
+ * validator in footer.php on blur/submit; the server's own validation
+ * (the page-level .alert-error above the form) remains authoritative -
+ * this is a progressive-enhancement layer, not a replacement for it. */
+form input.is-invalid,
+form select.is-invalid,
+form textarea.is-invalid {
+    border-color: var(--danger);
+    background: var(--danger-bg);
+    margin-bottom: 6px;
+}
+
+form input.is-invalid:focus,
+form select.is-invalid:focus,
+form textarea.is-invalid:focus {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.14);
+}
+
+.field-error {
+    display: block;
+    margin: 0 0 14px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--danger);
+    font-weight: 600;
+}
 
 .form-actions { display: flex; gap: 10px; margin-top: 6px; }
 
@@ -819,6 +973,44 @@ a.stat-card-link:focus-visible {
     color: var(--text-dark);
     min-width: 170px;
 }
+
+/* ---------- Active filter chips ----------
+ * Shows which filters are narrowing the current list without reopening
+ * the panel, and lets one be cleared without resetting the rest. */
+.filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px 5px 12px;
+    border-radius: 999px;
+    background: #EEF0FE;
+    color: var(--accent-dark);
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.filter-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: var(--accent-dark);
+    text-decoration: none;
+    font-size: 15px;
+    line-height: 1;
+    transition: background var(--transition);
+}
+
+.filter-chip-remove:hover { background: rgba(76, 95, 213, 0.18); }
 
 /* ---------- Inline toolbar form (Reports filter bar) ----------
    A row of labelled controls sitting inside a card, with an action
@@ -1145,6 +1337,16 @@ a.stat-card-link:focus-visible {
 .page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .page-btn.disabled { opacity: 0.4; pointer-events: none; }
 
+.page-ellipsis {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 34px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
 /* =================================================================
    MOBILE NAVIGATION
    The rail turns into an off-canvas drawer below 900px. These pieces
@@ -1280,6 +1482,10 @@ body.rail-open { overflow: hidden; }
     .rail-close { display: inline-flex; }
     .topbar { display: flex; }
 
+    /* The sticky topbar now occupies the top of the viewport - clear it
+       instead of layering a toast over the hamburger button. */
+    .toast-stack { top: 68px; }
+
     /* Roomier nav targets now that it's a touch surface. */
     .nav-item { padding: 11px 12px; font-size: 15px; }
     .nav-subitem { padding: 10px 12px 10px 34px; font-size: 14px; }
@@ -1362,6 +1568,16 @@ body.rail-open { overflow: hidden; }
 
     .page-title { font-size: 20px; }
     .section-title { margin-top: 22px; }
+
+    /* Corner card is too narrow to read comfortably at this width -
+       span the viewport with the same gutter as everything else instead.
+       top stays at the 900px breakpoint's 68px (topbar clearance). */
+    .toast-stack {
+        right: 12px;
+        left: 12px;
+        width: auto;
+        max-width: none;
+    }
 
     .quick-actions,
     .stat-grid {
@@ -1602,7 +1818,7 @@ body.rail-open { overflow: hidden; }
 /* ---------- Print ---------- */
 @media print {
     .rail, .topbar, .rail-scrim, .header-actions,
-    .pagination-bar, .bulk-bar, .filter-panel, .sort-bar { display: none !important; }
+    .pagination-bar, .bulk-bar, .filter-panel, .sort-bar, .filter-chips { display: none !important; }
 
     .main { padding: 0; }
     .table-card { border: none; box-shadow: none; }

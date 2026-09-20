@@ -28,7 +28,7 @@ require __DIR__ . '/../partials/header.php';
                 <input type="hidden" name="category_id" value="<?= htmlspecialchars($data['category_id']) ?>">
 
                 <label for="category_name">Category Name</label>
-                <input type="text" id="category_name" name="category_name"
+                <input type="text" id="category_name" name="category_name" maxlength="100"
                        value="<?= htmlspecialchars($data['category_name']) ?>" required>
 
                 <div class="form-actions">

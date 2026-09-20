@@ -39,11 +39,11 @@ $oldManualProducts = $old['manual_products'] ?? [];
         <form method="POST" action="index.php?module=delivery&action=index" id="deliveryForm">
             <div class="form-card">
                 <label for="supplier_name">Supplier</label>
-                <input type="text" id="supplier_name" name="supplier_name" placeholder="e.g. Carrier Philippines"
+                <input type="text" id="supplier_name" name="supplier_name" placeholder="e.g. Carrier Philippines" maxlength="150"
                        value="<?= htmlspecialchars($old['supplier_name'] ?? '') ?>" required>
 
                 <label for="technician_name">Received By</label>
-                <input type="text" id="technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz"
+                <input type="text" id="technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100"
                        value="<?= htmlspecialchars($old['technician_name'] ?? '') ?>" required>
 
                 <label for="transaction_date">Delivery Date</label>

@@ -28,7 +28,7 @@ $old = $_POST ?? [];
         <div class="form-card">
             <form method="POST" id="addProductForm" action="index.php?module=products&action=create">
                 <label for="model">Model</label>
-                <input type="text" id="model" name="model" placeholder="e.g. FTKC50UVM"
+                <input type="text" id="model" name="model" placeholder="e.g. FTKC50UVM" maxlength="100"
                        value="<?= htmlspecialchars($old['model'] ?? '') ?>" required>
 
                 <?php $selectedCategoryId = $old['category_id'] ?? ''; ?>
@@ -74,7 +74,7 @@ $old = $_POST ?? [];
                     <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
 
                     <label for="energy_rating">Energy Rating</label>
-                    <input type="text" id="energy_rating" name="energy_rating" placeholder="e.g. 5 Star"
+                    <input type="text" id="energy_rating" name="energy_rating" placeholder="e.g. 5 Star" maxlength="20"
                            value="<?= htmlspecialchars($old['energy_rating'] ?? '') ?>">
 
                     <label for="monthly_consumption">Monthly Consumption (kWh)</label>
@@ -83,19 +83,19 @@ $old = $_POST ?? [];
                            value="<?= htmlspecialchars($old['monthly_consumption'] ?? '') ?>">
 
                     <label for="cooling_capacity">Cooling Capacity</label>
-                    <input type="text" id="cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)"
+                    <input type="text" id="cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)" maxlength="50"
                            value="<?= htmlspecialchars($old['cooling_capacity'] ?? '') ?>">
 
                     <label for="refrigerant">Refrigerant</label>
-                    <input type="text" id="refrigerant" name="refrigerant" placeholder="e.g. R32"
+                    <input type="text" id="refrigerant" name="refrigerant" placeholder="e.g. R32" maxlength="50"
                            value="<?= htmlspecialchars($old['refrigerant'] ?? '') ?>">
 
                     <label for="installation_type">Installation Type</label>
-                    <input type="text" id="installation_type" name="installation_type" placeholder="e.g. Wall Mounted"
+                    <input type="text" id="installation_type" name="installation_type" placeholder="e.g. Wall Mounted" maxlength="50"
                            value="<?= htmlspecialchars($old['installation_type'] ?? '') ?>">
 
                     <label for="power_input">Power Input</label>
-                    <input type="text" id="power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz"
+                    <input type="text" id="power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz" maxlength="50"
                            value="<?= htmlspecialchars($old['power_input'] ?? '') ?>">
 
                     <label for="year">Year</label>

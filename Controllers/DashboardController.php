@@ -40,7 +40,7 @@ class DashboardController
         $stats = ['total_products' => 0, 'total_categories' => 0, 'total_transactions' => 0];
         $recentTransactions = [];
         $productsByCategory = [];
-        $transactionsByType = [];
+        $dailyVolume = [];
         $predictedStockouts = [];
 
         // Technician-only, all scoped to the signed-in requester.
@@ -108,7 +108,7 @@ class DashboardController
             try {
                 $stats['total_transactions'] = $transaction->count();
                 $recentTransactions = $transaction->readRecent(6);
-                $transactionsByType = $transaction->countByType();
+                $dailyVolume = $transaction->dailyVolume(14);
             } catch (PDOException $e) {
                 $dbError = ($dbError ? $dbError . " " : "")
                     . "Could not load transaction data — make sure the 'transactions' table has been created (run database/coolstock_full_setup.sql).";

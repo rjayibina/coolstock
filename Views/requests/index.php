@@ -119,8 +119,8 @@ function requestTabLabel(string $tab, bool $isTechnician): string
                                 <?php if ($isStaff): ?>
                                 <td class="actions">
                                     <button type="button" class="btn btn-success btn-sm" onclick="openApproveModal(<?= (int) $r['transaction_id'] ?>)">Approve</button>
-                                    <a href="index.php?module=requests&action=decline&id=<?= (int) $r['transaction_id'] ?>" class="btn btn-danger btn-sm"
-                                       onclick="return confirm('Decline this request?');">Decline</a>
+                                    <button type="button" class="btn btn-danger btn-sm"
+                                            onclick="openDeclineModal(<?= (int) $r['transaction_id'] ?>, <?= htmlspecialchars(json_encode($r['model'] ?? 'this item'), ENT_QUOTES) ?>)">Decline</button>
                                 </td>
                                 <?php endif; ?>
                             </tr>
@@ -265,9 +265,13 @@ function requestTabLabel(string $tab, bool $isTechnician): string
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?></span>
                 <div class="pagination-controls">
                     <a href="<?= requestTabUrl($tab) ?>&page=<?= max(1, $pagination['page'] - 1) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= requestTabUrl($tab) ?>&page=<?= $p ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= requestTabUrl($tab) ?>&page=<?= $p ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= requestTabUrl($tab) ?>&page=<?= min($pagination['totalPages'], $pagination['page'] + 1) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>
@@ -368,6 +372,24 @@ function requestTabLabel(string $tab, bool $isTechnician): string
                 </div>
             </div>
         </div>
+
+        <?php // Declining used a bare confirm() before - same styled modal
+              // pattern as every delete confirmation elsewhere in the app. ?>
+        <div id="declineModal" class="modal-overlay" onclick="if(event.target===this) closeRequestModal('declineModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Decline Request</h3>
+                    <button type="button" class="modal-close" onclick="closeRequestModal('declineModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Decline the request for <strong id="dcl_name"></strong>? This cannot be undone.</p>
+                    <div class="form-actions">
+                        <a id="dcl_confirm_link" href="#" class="btn btn-danger-solid">Decline</a>
+                        <button type="button" class="btn btn-secondary" onclick="closeRequestModal('declineModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <?php endif; ?>
 
         <script>
@@ -389,9 +411,16 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             document.getElementById('addRequestModal').classList.add('open');
         }
 
+        <?php if ($isStaff): ?>
         function openApproveModal(requestId) {
             document.getElementById('ap_request_id').value = requestId;
             document.getElementById('approveModal').classList.add('open');
+        }
+
+        function openDeclineModal(requestId, model) {
+            document.getElementById('dcl_name').textContent = model;
+            document.getElementById('dcl_confirm_link').href = 'index.php?module=requests&action=decline&id=' + requestId;
+            document.getElementById('declineModal').classList.add('open');
         }
 
         function openReturnModal(borrowId, outstanding, model) {
@@ -412,6 +441,7 @@ function requestTabLabel(string $tab, bool $isTechnician): string
 
             document.getElementById('returnModal').classList.add('open');
         }
+        <?php endif; ?>
 
         // Damaged can never exceed what's being returned - the server
         // re-checks this too (ItemRequestController::returnItem()), this
@@ -507,7 +537,7 @@ function requestTabLabel(string $tab, bool $isTechnician): string
 
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
-                ['addRequestModal', 'approveModal', 'returnModal'].forEach(closeRequestModal);
+                ['addRequestModal', 'approveModal', 'returnModal', 'declineModal'].forEach(closeRequestModal);
             }
         });
         </script>

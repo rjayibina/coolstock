@@ -54,6 +54,8 @@ function locationPageUrl(int $page): string
             <div class="alert alert-warning"><?= $bulkCount ?> deleted, <?= $bulkSkipped ?> skipped because <?= $bulkSkipped === 1 ? 'it still has' : 'they still have' ?> products assigned.</div>
         <?php elseif ($status === 'name_required'): ?>
             <div class="alert alert-warning">Location name is required.</div>
+        <?php elseif ($status === 'name_too_long'): ?>
+            <div class="alert alert-warning">Location name must be at most 100 characters.</div>
         <?php elseif ($status === 'error'): ?>
             <div class="alert alert-warning">Something went wrong. Please try again.</div>
         <?php endif; ?>
@@ -71,8 +73,7 @@ function locationPageUrl(int $page): string
         <form method="POST" id="bulkLocationForm">
             <div id="bulkBar" class="bulk-bar">
                 <span><strong id="bulkCount">0</strong> selected</span>
-                <button type="submit" formaction="index.php?module=locations&action=bulkDelete" class="btn btn-danger btn-sm"
-                        onclick="return confirm('Delete the selected locations? Any location still holding products will be skipped.');">Delete Selected</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDeleteLocationModal()">Delete Selected</button>
             </div>
 
             <div class="table-card">
@@ -117,9 +118,13 @@ function locationPageUrl(int $page): string
                 <span>Showing <?= $startRow ?>–<?= $endRow ?> of <?= $pagination['totalCount'] ?> locations</span>
                 <div class="pagination-controls">
                     <a href="<?= locationPageUrl(max(1, $pagination['page'] - 1)) ?>" class="page-btn <?= $pagination['page'] <= 1 ? 'disabled' : '' ?>">&lsaquo; Prev</a>
-                    <?php for ($p = 1; $p <= $pagination['totalPages']; $p++): ?>
-                        <a href="<?= locationPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
-                    <?php endfor; ?>
+                    <?php foreach (paginate_page_numbers($pagination['page'], $pagination['totalPages']) as $p): ?>
+                        <?php if ($p === null): ?>
+                            <span class="page-ellipsis">&hellip;</span>
+                        <?php else: ?>
+                            <a href="<?= locationPageUrl($p) ?>" class="page-btn <?= $p === $pagination['page'] ? 'active' : '' ?>"><?= $p ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
                     <a href="<?= locationPageUrl(min($pagination['totalPages'], $pagination['page'] + 1)) ?>" class="page-btn <?= $pagination['page'] >= $pagination['totalPages'] ? 'disabled' : '' ?>">Next &rsaquo;</a>
                 </div>
             </div>
@@ -134,7 +139,7 @@ function locationPageUrl(int $page): string
                 <div class="modal-body">
                     <form method="POST" action="index.php?module=locations&action=create">
                         <label for="al_location_name">Name</label>
-                        <input type="text" id="al_location_name" name="location_name" placeholder="e.g. Main Store, Warehouse" required>
+                        <input type="text" id="al_location_name" name="location_name" placeholder="e.g. Main Store, Warehouse" maxlength="100" required>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Location</button>
@@ -156,7 +161,7 @@ function locationPageUrl(int $page): string
                         <input type="hidden" name="location_id" id="el_location_id" value="">
 
                         <label for="el_location_name">Name</label>
-                        <input type="text" id="el_location_name" name="location_name" required>
+                        <input type="text" id="el_location_name" name="location_name" maxlength="100" required>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Location</button>
@@ -183,6 +188,24 @@ function locationPageUrl(int $page): string
             </div>
         </div>
 
+        <?php // Bulk delete used a bare confirm() before - same destructive
+              // action, same styled modal as the single-row delete above. ?>
+        <div id="bulkDeleteLocationModal" class="modal-overlay" onclick="if(event.target===this) closeModal('bulkDeleteLocationModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Delete Locations</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('bulkDeleteLocationModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p>Delete <strong id="bdl_count">0</strong> selected <span id="bdl_noun">locations</span>? Any location still holding products will be skipped. This cannot be undone.</p>
+                    <div class="form-actions">
+                        <button type="submit" form="bulkLocationForm" formaction="index.php?module=locations&action=bulkDelete" class="btn btn-danger-solid">Delete</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('bulkDeleteLocationModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
         const locationsData = <?= json_encode(array_column($locations, null, 'location_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
@@ -192,6 +215,14 @@ function locationPageUrl(int $page): string
 
         function openAddLocationModal() {
             document.getElementById('addLocationModal').classList.add('open');
+        }
+
+        function openBulkDeleteLocationModal() {
+            const count = document.querySelectorAll('.location-check:checked').length;
+            if (count === 0) { return; }
+            document.getElementById('bdl_count').textContent = count;
+            document.getElementById('bdl_noun').textContent = count === 1 ? 'location' : 'locations';
+            document.getElementById('bulkDeleteLocationModal').classList.add('open');
         }
 
         function openEditLocationModal(id) {

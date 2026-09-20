@@ -47,6 +47,10 @@ class LocationController
             header("Location: index.php?module=locations&action=index&status=name_required");
             exit;
         }
+        if (strlen($name) > 100) {
+            header("Location: index.php?module=locations&action=index&status=name_too_long");
+            exit;
+        }
 
         $this->location->location_name = $name;
 
@@ -72,6 +76,10 @@ class LocationController
 
         if ($name === '') {
             header("Location: index.php?module=locations&action=index&status=name_required");
+            exit;
+        }
+        if (strlen($name) > 100) {
+            header("Location: index.php?module=locations&action=index&status=name_too_long");
             exit;
         }
 
