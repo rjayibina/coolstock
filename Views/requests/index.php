@@ -294,6 +294,15 @@ function requestTabLabel(string $tab, bool $isTechnician): string
                             <div id="requestSearchResults" class="search-results-dropdown" style="display:none;"></div>
                         </div>
                         <p class="cell-muted" style="font-size:12px;margin:6px 0 0;">Out-of-stock products aren't listed - nothing to release against them yet.</p>
+
+                        <?php // Browsable list (10 per page) so every role can see what's
+                              // available without having to type anything - the search box
+                              // above still works exactly as before and takes over this
+                              // area while there's a query in it. ?>
+                        <div id="requestBrowseWrap" style="margin-top:10px;">
+                            <div id="requestProductList" class="request-browse-list"></div>
+                            <div id="requestProductPagination" class="pagination-bar" style="margin-top:8px;"></div>
+                        </div>
                         <?php else: ?>
                         <div class="alert alert-warning">No products currently have stock available to request.</div>
                         <?php endif; ?>
@@ -402,13 +411,73 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             'category_name' => $it['category_name'] ?? 'Uncategorized',
         ], $requestableItems), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
         const requestAddedItemIds = new Set();
+        const REQUEST_BROWSE_PAGE_SIZE = 10;
+        let requestBrowsePage = 1;
 
         function closeRequestModal(id) {
             document.getElementById(id)?.classList.remove('open');
         }
 
         function openAddRequestModal() {
+            requestBrowsePage = 1;
+            renderRequestBrowseList();
             document.getElementById('addRequestModal').classList.add('open');
+        }
+
+        // Every role sees the same 10-per-page browsable catalog here -
+        // it's just requestCatalog (already built server-side from every
+        // in-stock product, see $requestableItems above) minus whatever
+        // is already added as a line item, sliced client-side. The search
+        // box's own type-ahead dropdown is untouched; this list is what
+        // shows while that box is empty.
+        function availableRequestProducts() {
+            return requestCatalog.filter(p => !requestAddedItemIds.has(p.item_id));
+        }
+
+        function renderRequestBrowseList() {
+            const listEl = document.getElementById('requestProductList');
+            const pagerEl = document.getElementById('requestProductPagination');
+            if (!listEl || !pagerEl) {
+                return;
+            }
+
+            const products = availableRequestProducts();
+            const totalPages = Math.max(1, Math.ceil(products.length / REQUEST_BROWSE_PAGE_SIZE));
+            if (requestBrowsePage > totalPages) requestBrowsePage = totalPages;
+            if (requestBrowsePage < 1) requestBrowsePage = 1;
+
+            if (products.length === 0) {
+                listEl.innerHTML = '<div class="search-result-empty">All available products have been added.</div>';
+                pagerEl.innerHTML = '';
+                return;
+            }
+
+            const start = (requestBrowsePage - 1) * REQUEST_BROWSE_PAGE_SIZE;
+            const pageItems = products.slice(start, start + REQUEST_BROWSE_PAGE_SIZE);
+
+            listEl.innerHTML = pageItems.map(p =>
+                '<div class="search-result-item" onclick="addRequestLineItem(' + p.item_id + ')">'
+                    + '<strong>' + htmlEscapeRequests(p.model) + '</strong>'
+                    + '<span class="cell-muted">' + htmlEscapeRequests(p.category_name) + '</span>'
+                    + '</div>'
+            ).join('');
+
+            const startRow = start + 1;
+            const endRow = Math.min(start + REQUEST_BROWSE_PAGE_SIZE, products.length);
+            let pagerHtml = '<span>Showing ' + startRow + '–' + endRow + ' of ' + products.length + '</span>';
+            pagerHtml += '<div class="pagination-controls">';
+            pagerHtml += '<button type="button" class="page-btn' + (requestBrowsePage <= 1 ? ' disabled' : '') + '" onclick="changeRequestBrowsePage(' + (requestBrowsePage - 1) + ')">&lsaquo; Prev</button>';
+            for (let p = 1; p <= totalPages; p++) {
+                pagerHtml += '<button type="button" class="page-btn' + (p === requestBrowsePage ? ' active' : '') + '" onclick="changeRequestBrowsePage(' + p + ')">' + p + '</button>';
+            }
+            pagerHtml += '<button type="button" class="page-btn' + (requestBrowsePage >= totalPages ? ' disabled' : '') + '" onclick="changeRequestBrowsePage(' + (requestBrowsePage + 1) + ')">Next &rsaquo;</button>';
+            pagerHtml += '</div>';
+            pagerEl.innerHTML = pagerHtml;
+        }
+
+        function changeRequestBrowsePage(page) {
+            requestBrowsePage = page;
+            renderRequestBrowseList();
         }
 
         <?php if ($isStaff): ?>
@@ -460,13 +529,19 @@ function requestTabLabel(string $tab, bool $isTechnician): string
         function renderRequestSearchResults() {
             const input = document.getElementById('requestProductSearch');
             const dropdown = document.getElementById('requestSearchResults');
+            const browseWrap = document.getElementById('requestBrowseWrap');
             const q = input.value.trim().toLowerCase();
 
             if (q === '') {
                 dropdown.style.display = 'none';
                 dropdown.innerHTML = '';
+                // Nothing typed - go back to the browsable, paginated list.
+                if (browseWrap) browseWrap.style.display = '';
                 return;
             }
+            // A query is active - the type-ahead dropdown takes over from
+            // the paginated list until the search box is cleared again.
+            if (browseWrap) browseWrap.style.display = 'none';
 
             const matches = requestCatalog
                 .filter(p => !requestAddedItemIds.has(p.item_id) && p.model.toLowerCase().includes(q))
@@ -512,6 +587,9 @@ function requestTabLabel(string $tab, bool $isTechnician): string
 
             document.getElementById('requestProductSearch').value = '';
             document.getElementById('requestSearchResults').style.display = 'none';
+            const browseWrap = document.getElementById('requestBrowseWrap');
+            if (browseWrap) browseWrap.style.display = '';
+            renderRequestBrowseList();
         }
 
         function removeRequestLineItem(itemId) {
@@ -520,6 +598,7 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             if (requestAddedItemIds.size === 0) {
                 document.getElementById('requestLineItemsCard').style.display = 'none';
             }
+            renderRequestBrowseList();
         }
 
         function htmlEscapeRequests(str) {

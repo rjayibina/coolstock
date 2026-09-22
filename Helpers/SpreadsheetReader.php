@@ -36,7 +36,11 @@ class SpreadsheetReader
         if ($handle === false) {
             throw new RuntimeException("Could not open the CSV file.");
         }
-        while (($row = fgetcsv($handle)) !== false) {
+        // PHP 8.4 deprecates the implicit backslash escape default - pass
+        // it explicitly (empty string = no escape character, the RFC 4180
+        // behavior; this data never relies on backslash-escaping) so this
+        // doesn't emit a deprecation notice into the response on every row.
+        while (($row = fgetcsv($handle, escape: '')) !== false) {
             $rows[] = $row;
         }
         fclose($handle);

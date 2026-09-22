@@ -85,7 +85,7 @@ function itemTypePageUrl(int $page): string
                             <th style="width:36px;"><input type="checkbox" id="selectAllItemTypes" class="row-check" onclick="toggleAllItemTypes(this)"></th>
                             <th style="width:60px;">ID</th>
                             <th>Name</th>
-                            <th style="width:150px;">Serial No. on Stock Out</th>
+                            <th style="width:200px;">Serial No. on Stock Out</th>
                             <th style="width:150px;">Actions</th>
                         </tr>
                     </thead>

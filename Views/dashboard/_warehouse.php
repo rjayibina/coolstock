@@ -6,9 +6,12 @@
  * a superset of this view, not a different one.
  *
  * Included from Views/dashboard/index.php, which owns the page chrome
- * and supplies: $stats, $ops, $approvalQueue, $productsByCategory,
- * $transactionsByType, $dailyVolume, $predictedStockouts,
- * $recentTransactions.
+ * and supplies: $stats, $ops, $productsByCategory, $transactionsByType,
+ * $dailyVolume, $predictedStockouts, $recentTransactions.
+ *
+ * The Awaiting Approval table was removed from this dashboard per
+ * request - the stat tile above and the "Review requests" callout still
+ * point to the approval queue at Item Requests > Pending.
  */
 $requestsUrl = 'index.php?module=requests&action=index';
 $stockAlerts = count($predictedStockouts);
@@ -53,135 +56,8 @@ foreach ($predictedStockouts as $__row) {
             </a>
         </div>
 
-        <div class="section-head">
-            <div class="section-title">Awaiting Approval</div>
-            <?php if (!empty($approvalQueue)): ?>
-                <a href="<?= $requestsUrl ?>&tab=pending" class="text-link">Open approval queue</a>
-            <?php endif; ?>
-        </div>
-        <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Requested By</th>
-                        <th>Quantity</th>
-                        <th>Requested On</th>
-                        <th>Notes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($approvalQueue)): ?>
-                        <tr class="empty-row"><td colspan="5">Nothing is waiting for approval right now.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($approvalQueue as $q): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($q['model'] ?? 'Unknown product') ?></strong></td>
-                                <td class="cell-muted"><?= htmlspecialchars($q['requested_by_name'] ?? $q['technician_name'] ?? '—') ?></td>
-                                <td class="cell-id"><?= (int) $q['quantity'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars(format_datetime($q['transaction_date'])) ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars(trim((string) ($q['notes'] ?? '')) !== '' ? $q['notes'] : '—') ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="section-head">
-            <div class="section-title">Predicted Stockouts</div>
-            <?php if (!empty($predictedStockouts)): ?>
-                <a href="index.php?module=reports&action=index&type=low_stock" class="text-link">Open full report</a>
-            <?php endif; ?>
-        </div>
-        <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Current Stock</th>
-                        <th>Avg. Daily Stock-Outs</th>
-                        <th>Predicted Stockout</th>
-                        <th>Reorder Point</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($predictedStockouts)): ?>
-                        <tr class="empty-row"><td colspan="6">No stockout risk detected right now.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($predictedStockouts as $row): ?>
-                            <?php
-                            // predicted_days comes back from round() as a float, so a
-                            // strict === 1 comparison never matched and every row read
-                            // "days", even at exactly one day.
-                            $days = (float) $row['predicted_days'];
-                            ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($row['model']) ?></strong></td>
-                                <td class="cell-id"><?= (int) $row['current_stock'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars((string) $row['avg_daily_stock_outs']) ?>/day</td>
-                                <td class="cell-muted"><?= $row['status'] === 'actual' ? '—' : htmlspecialchars($row['predicted_days'] . ' day' . ($days == 1 ? '' : 's')) ?></td>
-                                <td class="cell-muted"><?= $row['reorder_point'] !== null ? (int) $row['reorder_point'] : '—' ?></td>
-                                <td>
-                                    <?php if ($row['status'] === 'actual'): ?>
-                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Out now</span>
-                                    <?php else: ?>
-                                        <span class="badge" style="background:var(--warning-bg);color:var(--warning);">Reorder now</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <div class="section-head">
-            <div class="section-title">Recent Stock Movement</div>
-            <?php if (!empty($recentTransactions)): ?>
-                <a href="index.php?module=transactions&action=index" class="text-link">View all movement</a>
-            <?php endif; ?>
-        </div>
-        <div class="table-card">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Type</th>
-                        <th>Technician</th>
-                        <th>Quantity</th>
-                        <th>Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($recentTransactions)): ?>
-                        <?php // colspan matches the five headers above - was 4. ?>
-                        <tr class="empty-row"><td colspan="5">No transactions logged yet.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($recentTransactions as $t): ?>
-                            <tr>
-                                <td><strong><?= htmlspecialchars($t['model'] ?? 'Unknown product') ?></strong></td>
-                                <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
-                                <td class="cell-muted">
-                                    <?php if ($t['source'] === 'auto'): ?>
-                                        <span style="font-style:italic;">System</span>
-                                    <?php else: ?>
-                                        <?= htmlspecialchars($t['technician_name'] ?? '—') ?>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="cell-id"><?= (int) $t['quantity'] ?></td>
-                                <td class="cell-muted"><?= htmlspecialchars(format_datetime($t['created_at'])) ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <?php // Analysis last. Everything above is something to act on -
-              // approvals, reorders, what just moved - so the charts sit
-              // below the fold rather than splitting the action items. ?>
+        <?php // Analysis first, per the latest request - trends (chart-grid)
+              // now sit above Awaiting Approval instead of below the fold. ?>
         <div class="section-head">
             <div class="section-title">Trends</div>
             <a href="index.php?module=reports&action=index" class="text-link">Open reports</a>
@@ -285,3 +161,94 @@ foreach ($predictedStockouts as $__row) {
             }
         })();
         </script>
+
+        <div class="section-head">
+            <div class="section-title">Predicted Stockouts</div>
+            <?php if (!empty($predictedStockouts)): ?>
+                <a href="index.php?module=reports&action=index&type=low_stock" class="text-link">Open full report</a>
+            <?php endif; ?>
+        </div>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Current Stock</th>
+                        <th>Avg. Daily Stock-Outs</th>
+                        <th>Predicted Stockout</th>
+                        <th>Reorder Point</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($predictedStockouts)): ?>
+                        <tr class="empty-row"><td colspan="6">No stockout risk detected right now.</td></tr>
+                    <?php else: ?>
+                        <?php foreach ($predictedStockouts as $row): ?>
+                            <?php
+                            // predicted_days comes back from round() as a float, so a
+                            // strict === 1 comparison never matched and every row read
+                            // "days", even at exactly one day.
+                            $days = (float) $row['predicted_days'];
+                            ?>
+                            <tr>
+                                <td><strong><?= htmlspecialchars($row['model']) ?></strong></td>
+                                <td class="cell-id"><?= (int) $row['current_stock'] ?></td>
+                                <td class="cell-muted"><?= htmlspecialchars((string) $row['avg_daily_stock_outs']) ?>/day</td>
+                                <td class="cell-muted"><?= $row['status'] === 'actual' ? '—' : htmlspecialchars($row['predicted_days'] . ' day' . ($days == 1 ? '' : 's')) ?></td>
+                                <td class="cell-muted"><?= $row['reorder_point'] !== null ? (int) $row['reorder_point'] : '—' ?></td>
+                                <td>
+                                    <?php if ($row['status'] === 'actual'): ?>
+                                        <span class="badge" style="background:var(--danger-bg);color:var(--danger);">Out now</span>
+                                    <?php else: ?>
+                                        <span class="badge" style="background:var(--warning-bg);color:var(--warning);">Reorder now</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section-head">
+            <div class="section-title">Recent Stock Movement</div>
+            <?php if (!empty($recentTransactions)): ?>
+                <a href="index.php?module=transactions&action=index" class="text-link">View all movement</a>
+            <?php endif; ?>
+        </div>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Type</th>
+                        <th>Technician</th>
+                        <th>Quantity</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($recentTransactions)): ?>
+                        <?php // colspan matches the five headers above - was 4. ?>
+                        <tr class="empty-row"><td colspan="5">No transactions logged yet.</td></tr>
+                    <?php else: ?>
+                        <?php foreach ($recentTransactions as $t): ?>
+                            <tr>
+                                <td><strong><?= htmlspecialchars($t['model'] ?? 'Unknown product') ?></strong></td>
+                                <td><span class="badge badge-<?= htmlspecialchars($t['transaction_type']) ?>"><?= Transaction::typeLabel($t['transaction_type']) ?></span></td>
+                                <td class="cell-muted">
+                                    <?php if ($t['source'] === 'auto'): ?>
+                                        <span style="font-style:italic;">System</span>
+                                    <?php else: ?>
+                                        <?= htmlspecialchars($t['technician_name'] ?? '—') ?>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="cell-id"><?= (int) $t['quantity'] ?></td>
+                                <td class="cell-muted"><?= htmlspecialchars(format_datetime($t['created_at'])) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>

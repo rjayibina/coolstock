@@ -93,7 +93,10 @@ class InventoryItemController
         // the actual FKs are brand_id / item_type_id. quantity is read-only
         // here (total across all locations) - stock is only ever changed via
         // Stock In/Out, never through import/export.
-        fputcsv($out, ['category_name', 'brand_name', 'type_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year', 'quantity']);
+        // escape: '' - see the matching note in SpreadsheetReader::readCsv();
+        // without it, PHP 8.4's deprecation notice prints directly into the
+        // CSV body on every fputcsv() call, corrupting the downloaded file.
+        fputcsv($out, ['category_name', 'brand_name', 'type_name', 'model', 'energy_rating', 'monthly_consumption', 'cooling_capacity', 'refrigerant', 'installation_type', 'power_input', 'year', 'quantity'], escape: '');
         foreach ($items as $it) {
             fputcsv($out, [
                 $it['category_name'] ?? '',
@@ -108,7 +111,7 @@ class InventoryItemController
                 $it['power_input'] ?? '',
                 $it['year'] ?? '',
                 $it['total_quantity'],
-            ]);
+            ], escape: '');
         }
         fclose($out);
         exit;
