@@ -606,6 +606,82 @@ class Transaction
         return $stmt->fetchAll();
     }
 
+    /** Count of DISTINCT request groups matching the same filters as
+     *  readRequestListGrouped() - for pagination on the consolidated
+     *  Pending Requests list. See readRequestListGrouped() for what a
+     *  "group" is. */
+    public function countRequestListGrouped(string $type, array $statuses = [], ?string $technicianName = null): int
+    {
+        [$where, $params] = $this->buildRequestFilterClause($type, $statuses, $technicianName);
+
+        $query = "SELECT COUNT(*) AS total FROM (
+                      SELECT COALESCE(t.reference_number, CONCAT('txn-', t.transaction_id)) AS grouping_key
+                      FROM {$this->table} t
+                      WHERE {$where}
+                      GROUP BY grouping_key
+                  ) g";
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+        return (int) $stmt->fetch()['total'];
+    }
+
+    /** Consolidated Pending Requests listing: several item_request lines
+     *  submitted together in one "New Request" (sharing a
+     *  reference_number - see ItemRequestController::create()) collapse
+     *  into ONE row here - its earliest-added line, plus line_count (how
+     *  many products were in that submission) and total_quantity (the
+     *  sum of every line's quantity). A second, separate submission -
+     *  even same requester, same day - gets its own reference_number and
+     *  stays its own row, same as readGrouped()'s Product Movement
+     *  convention.
+     *
+     *  Unlike readRequestList() (used for Active Borrows/History, which
+     *  stays flat - a return can happen line-by-line), this is safe to
+     *  consolidate because Approve/Decline act on the WHOLE group at
+     *  once (see ItemRequestController::approve()/decline()), so there's
+     *  no remaining per-line action a consolidated row would hide. */
+    public function readRequestListGrouped(string $type, array $statuses = [], ?string $technicianName = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+    {
+        [$where, $params] = $this->buildRequestFilterClause($type, $statuses, $technicianName, 't2');
+        $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
+        $requestedBy = $this->requesterNameExpression($type);
+
+        $query = "SELECT t.*, i.model, l.location_name,
+                         {$requestedBy} AS requested_by_name,
+                         g.line_count, g.total_quantity
+                  FROM {$this->table} t
+                  INNER JOIN (
+                      SELECT COALESCE(t2.reference_number, CONCAT('txn-', t2.transaction_id)) AS grouping_key,
+                             MIN(t2.transaction_id) AS representative_id,
+                             COUNT(*) AS line_count,
+                             SUM(t2.quantity) AS total_quantity
+                      FROM {$this->table} t2
+                      WHERE {$where}
+                      GROUP BY grouping_key
+                  ) g ON t.transaction_id = g.representative_id
+                  LEFT JOIN inventory_items i ON t.item_id = i.item_id
+                  LEFT JOIN locations l ON t.location_id = l.location_id
+                  ORDER BY {$orderBy}";
+
+        if ($limit !== null && $offset !== null) {
+            $query .= " LIMIT :limit OFFSET :offset";
+        }
+
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        if ($limit !== null && $offset !== null) {
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        return $stmt->fetchAll();
+    }
+
     /** Units still physically out on active Borrows - the borrowed
      *  quantity minus whatever has already come back against each one, so
      *  a partially-returned Borrow only counts what's still outstanding.
@@ -655,5 +731,25 @@ class Transaction
         $stmt->bindValue(':status', $status);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
+    }
+
+    /** Thin PDO transaction wrappers - used by ItemRequestController::
+     *  approve() so a whole-batch (or bulk multi-select) approval writes
+     *  its Borrow rows and stock deductions atomically: one failed line
+     *  rolls every line in that approval back, instead of leaving stock
+     *  partially released. */
+    public function beginTransaction(): bool
+    {
+        return $this->conn->beginTransaction();
+    }
+
+    public function commit(): bool
+    {
+        return $this->conn->commit();
+    }
+
+    public function rollBack(): bool
+    {
+        return $this->conn->inTransaction() ? $this->conn->rollBack() : false;
     }
 }

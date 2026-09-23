@@ -205,6 +205,11 @@ class TransactionController
                 'location_name' => $row['location_name'],
                 'to_location_name' => $row['to_location_name'],
                 'manually_added' => (int) $row['manually_added'] === 1,
+                // Only meaningful for an 'RQ-' (item_request) batch - see
+                // openBatchModal() in Views/transactions/index.php, which
+                // uses this to title the modal by requester instead of by
+                // location (an Item Request has no location of its own).
+                'technician_name' => $row['technician_name'],
             ];
         }, $rows));
         exit;

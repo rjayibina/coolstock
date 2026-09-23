@@ -1454,7 +1454,7 @@ a.stat-card-link:focus-visible {
 
 body.rail-open { overflow: hidden; }
 
-#addRequestModal input, #filterPanel select, #filterPanel input, #deliveryProductSearch, #transferProductSearch, .reports-table-card select, .reports-table-card input, #stockForm .serial-row input, #bulkStockForm .serial-row input, #ait_type_name, #eit_type_name {
+#addRequestModal input, #filterPanel select, #filterPanel input, #deliveryProductSearch, #transferProductSearch, .reports-table-card select, .reports-table-card input, #stockForm .serial-row input, #bulkForm .bulk-bar select, #bulkStockModal .serial-row input, #bulkStockModal .bulk-stock-row input {
     margin: 0 !important;
 }
 

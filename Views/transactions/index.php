@@ -292,6 +292,7 @@ require __DIR__ . '/../partials/header.php';
         function openBatchModal(referenceNumber) {
             const isTransfer = referenceNumber.startsWith('TR-');
             const isStockOut = referenceNumber.startsWith('SO-');
+            const isItemRequest = referenceNumber.startsWith('RQ-');
             document.getElementById('bm-subtitle').textContent = referenceNumber;
 
             const rows = document.getElementById('bm-rows');
@@ -302,7 +303,7 @@ require __DIR__ . '/../partials/header.php';
                 .then(res => res.json())
                 .then(lines => {
                     if (!Array.isArray(lines) || lines.length === 0) {
-                        document.getElementById('bm-title').textContent = isTransfer ? 'Transferred Products' : isStockOut ? 'Stocked Out Products' : 'Delivered Products';
+                        document.getElementById('bm-title').textContent = isTransfer ? 'Transferred Products' : isStockOut ? 'Stocked Out Products' : isItemRequest ? 'Requested Products' : 'Delivered Products';
                         rows.innerHTML = '<tr><td colspan="3" style="padding:10px 0;color:var(--text-muted);">No line items found.</td></tr>';
                         return;
                     }
@@ -313,6 +314,8 @@ require __DIR__ . '/../partials/header.php';
                             'Transferred Products (' + (first.location_name || '\u2014') + ' \u2192 ' + (first.to_location_name || '\u2014') + ')';
                     } else if (isStockOut) {
                         document.getElementById('bm-title').textContent = 'Stocked Out Products from ' + (first.location_name || '\u2014');
+                    } else if (isItemRequest) {
+                        document.getElementById('bm-title').textContent = 'Requested Products by ' + (first.technician_name || '\u2014');
                     } else {
                         document.getElementById('bm-title').textContent = 'Delivered Products to ' + (first.location_name || '\u2014');
                     }

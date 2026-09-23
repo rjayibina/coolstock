@@ -72,16 +72,25 @@ class ItemRequestController
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
             $page = min($page, $totalPages);
             $requests = array_slice($requests, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
-        } else {
-            [$type, $statuses] = $tab === 'pending'
-                ? ['item_request', ['pending']]
-                : ['borrow', ['active']];
-
-            $totalCount = $this->transaction->countRequestList($type, $statuses, $technicianFilter);
+        } elseif ($tab === 'pending') {
+            // Consolidated: several items submitted together in one "New
+            // Request" collapse into one row here (see
+            // readRequestListGrouped()) - Approve/Decline act on the
+            // whole group. Active Borrows stays on the flat, per-line
+            // readRequestList() below since a return can happen line by
+            // line, independent of anything it was originally requested
+            // alongside.
+            $totalCount = $this->transaction->countRequestListGrouped('item_request', ['pending'], $technicianFilter);
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
             $page = min($page, $totalPages);
             $offset = ($page - 1) * self::PER_PAGE;
-            $requests = $this->transaction->readRequestList($type, $statuses, $technicianFilter, 'date_desc', self::PER_PAGE, $offset);
+            $requests = $this->transaction->readRequestListGrouped('item_request', ['pending'], $technicianFilter, 'date_desc', self::PER_PAGE, $offset);
+        } else {
+            $totalCount = $this->transaction->countRequestList('borrow', ['active'], $technicianFilter);
+            $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * self::PER_PAGE;
+            $requests = $this->transaction->readRequestList('borrow', ['active'], $technicianFilter, 'date_desc', self::PER_PAGE, $offset);
         }
 
         $pagination = [
@@ -187,77 +196,206 @@ class ItemRequestController
         exit;
     }
 
-    /** Warehouse Staff/Admin approves a pending Item Request: picks a
-     *  fulfilling location, checks stock is actually available there,
-     *  creates the Borrow row, and deducts stock at that location. */
+    /** Expands a set of submitted request ids into the full set of still-
+     *  pending item_request line ids to act on: any id that belongs to a
+     *  batch (shares a reference_number - see readRequestListGrouped())
+     *  pulls in every pending sibling line too, since a consolidated
+     *  row's Approve/Decline act on the WHOLE batch at once. Also covers
+     *  the "Bulk Approve" multi-select, which can submit several ids
+     *  (each possibly its own batch) in one go - every id is expanded
+     *  the same way and the results de-duplicated across the whole
+     *  selection.
+     *
+     *  Returns the full, de-duplicated list of pending item_request rows
+     *  (not just ids) so callers don't have to re-fetch them. */
+    private function expandPendingRequestIds(array $ids): array
+    {
+        $lines = [];
+        foreach (array_map('intval', $ids) as $id) {
+            if ($id <= 0) {
+                continue;
+            }
+            $request = $this->transaction->readById($id);
+            if (!$request || $request['transaction_type'] !== 'item_request' || $request['status'] !== 'pending') {
+                continue;
+            }
+            if (!empty($request['reference_number'])) {
+                foreach ($this->transaction->readByReferenceNumber($request['reference_number']) as $line) {
+                    if ($line['transaction_type'] === 'item_request' && $line['status'] === 'pending') {
+                        $lines[(int) $line['transaction_id']] = $line;
+                    }
+                }
+            } else {
+                $lines[$id] = $request;
+            }
+        }
+        return array_values($lines);
+    }
+
+    /** Reads the submitted request id(s) off the request - a single
+     *  row's Approve/Decline button posts request_id (legacy field
+     *  name, still supported), the Bulk Approve toolbar posts
+     *  request_ids[] with every selected row's representative id. */
+    private function submittedRequestIds(): array
+    {
+        $ids = $_POST['request_ids'] ?? [];
+        if (is_array($ids) && !empty($ids)) {
+            return $ids;
+        }
+        $single = (int) ($_POST['request_id'] ?? $_GET['id'] ?? 0);
+        return $single > 0 ? [$single] : [];
+    }
+
+    /** Warehouse Staff/Admin approves one or more pending Item Requests
+     *  at once - a single consolidated row's own Approve button (whole
+     *  batch), or several rows picked via the Bulk Approve toolbar.
+     *  Picks ONE fulfilling location for everything being approved,
+     *  checks stock covers the COMBINED demand per product (so two
+     *  lines requesting the same item are checked against their total,
+     *  not validated independently), then creates every Borrow row and
+     *  deducts stock atomically - one short line aborts the whole
+     *  approval, nothing is partially released. */
     public function approve(): void
     {
         $this->requireStaff();
 
-        $id = (int) ($_POST['request_id'] ?? $_GET['id'] ?? 0);
         $locationId = (int) ($_POST['location_id'] ?? 0);
-
-        $request = $id > 0 ? $this->transaction->readById($id) : null;
-
-        if (!$request || $request['transaction_type'] !== 'item_request' || $request['status'] !== 'pending') {
-            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("That request is no longer pending."));
-            exit;
-        }
         if ($locationId <= 0) {
             header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("Please select a location to release from."));
             exit;
         }
 
-        $available = $this->itemStock->getQuantity((int) $request['item_id'], $locationId);
-        if ($available < (int) $request['quantity']) {
-            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("Only {$available} unit(s) available at that location - not enough to approve this request."));
+        $requests = $this->expandPendingRequestIds($this->submittedRequestIds());
+        if (empty($requests)) {
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("Those requests are no longer pending."));
+            exit;
+        }
+
+        $neededByItem = [];
+        foreach ($requests as $request) {
+            $itemId = (int) $request['item_id'];
+            $neededByItem[$itemId] = ($neededByItem[$itemId] ?? 0) + (int) $request['quantity'];
+        }
+        $shortfalls = [];
+        foreach ($neededByItem as $itemId => $needed) {
+            $available = $this->itemStock->getQuantity($itemId, $locationId);
+            if ($available < $needed) {
+                $name = $this->item->readOne($itemId)['model'] ?? "item #{$itemId}";
+                $shortfalls[] = "{$name} (need {$needed}, only {$available} available)";
+            }
+        }
+        if (!empty($shortfalls)) {
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode(
+                "Not enough stock at that location: " . implode('; ', $shortfalls)
+            ));
             exit;
         }
 
         $viewer = current_user();
 
-        $this->transaction->transaction_id = null;
-        $this->transaction->item_id = (int) $request['item_id'];
-        $this->transaction->location_id = $locationId;
-        $this->transaction->to_location_id = null;
-        $this->transaction->transaction_type = 'borrow';
-        $this->transaction->reference_number = $request['reference_number'];
-        $this->transaction->manually_added = false;
-        $this->transaction->quantity = (int) $request['quantity'];
-        $this->transaction->serial_number = null;
-        $this->transaction->transaction_date = date('Y-m-d');
-        $this->transaction->technician_name = $viewer['full_name'] ?? '';
-        $this->transaction->supplier_name = null;
-        $this->transaction->notes = $request['notes'];
-        $this->transaction->source = 'manual';
-        $this->transaction->status = 'active';
-        $this->transaction->related_transaction_id = $id;
-        $this->transaction->damaged_quantity = null;
-        $this->transaction->create();
+        $this->transaction->beginTransaction();
+        try {
+            foreach ($requests as $request) {
+                $id = (int) $request['transaction_id'];
 
-        $this->itemStock->adjust((int) $request['item_id'], $locationId, -(int) $request['quantity']);
-        $this->transaction->updateStatus($id, 'completed');
+                $this->transaction->transaction_id = null;
+                $this->transaction->item_id = (int) $request['item_id'];
+                $this->transaction->location_id = $locationId;
+                $this->transaction->to_location_id = null;
+                $this->transaction->transaction_type = 'borrow';
+                $this->transaction->reference_number = $request['reference_number'];
+                $this->transaction->manually_added = false;
+                $this->transaction->quantity = (int) $request['quantity'];
+                $this->transaction->serial_number = null;
+                $this->transaction->transaction_date = date('Y-m-d');
+                $this->transaction->technician_name = $viewer['full_name'] ?? '';
+                $this->transaction->supplier_name = null;
+                $this->transaction->notes = $request['notes'];
+                $this->transaction->source = 'manual';
+                $this->transaction->status = 'active';
+                $this->transaction->related_transaction_id = $id;
+                $this->transaction->damaged_quantity = null;
+                $this->transaction->create();
 
-        header("Location: index.php?module=requests&action=index&status=approved");
+                $this->itemStock->adjust((int) $request['item_id'], $locationId, -(int) $request['quantity']);
+                $this->transaction->updateStatus($id, 'completed');
+            }
+            $this->transaction->commit();
+        } catch (Throwable $e) {
+            $this->transaction->rollBack();
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("Approval failed, nothing was changed. Please try again."));
+            exit;
+        }
+
+        header("Location: index.php?module=requests&action=index&status=approved&count=" . count($requests));
         exit;
     }
 
     /** Warehouse Staff/Admin declines a pending Item Request - no stock
-     *  effect, terminal. */
+     *  effect, terminal. Declining a consolidated row declines every
+     *  line in that batch together, same as Approve. */
     public function decline(): void
     {
         $this->requireStaff();
 
-        $id = (int) ($_POST['request_id'] ?? $_GET['id'] ?? 0);
-        $request = $id > 0 ? $this->transaction->readById($id) : null;
-
-        if ($request && $request['transaction_type'] === 'item_request' && $request['status'] === 'pending') {
-            $this->transaction->updateStatus($id, 'declined');
-            header("Location: index.php?module=requests&action=index&status=declined");
+        $requests = $this->expandPendingRequestIds($this->submittedRequestIds());
+        if (empty($requests)) {
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("That request is no longer pending."));
             exit;
         }
 
-        header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("That request is no longer pending."));
+        foreach ($requests as $request) {
+            $this->transaction->updateStatus((int) $request['transaction_id'], 'declined');
+        }
+
+        header("Location: index.php?module=requests&action=index&status=declined&count=" . count($requests));
+        exit;
+    }
+
+    /** Returns every line item in one Item Request batch as JSON - powers
+     *  the Pending Requests "view products in this request" modal for a
+     *  consolidated row (see Transaction::readRequestListGrouped()).
+     *  Lives here rather than reusing TransactionController::batch()
+     *  because module=transactions is Warehouse Staff/Admin only, and a
+     *  Technician needs to be able to view their own request's line
+     *  items too - module=requests is open to any signed-in role. */
+    public function batch(): void
+    {
+        header('Content-Type: application/json');
+
+        $referenceNumber = trim($_GET['reference_number'] ?? '');
+        if ($referenceNumber === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Missing reference number.']);
+            exit;
+        }
+
+        $lines = array_values(array_filter(
+            $this->transaction->readByReferenceNumber($referenceNumber),
+            fn($row) => $row['transaction_type'] === 'item_request'
+        ));
+
+        // A Technician may only inspect their own request's lines, never
+        // another technician's - same requester-scoping rule as
+        // everywhere else on this controller.
+        if (has_role('technician')) {
+            $viewer = current_user();
+            $owner = $lines[0]['technician_name'] ?? null;
+            if (empty($lines) || $owner !== ($viewer['full_name'] ?? null)) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Not your request.']);
+                exit;
+            }
+        }
+
+        echo json_encode(array_map(function ($row) {
+            return [
+                'item_id' => (int) $row['item_id'],
+                'model' => $row['model'] ?? 'Unknown product',
+                'quantity' => (int) $row['quantity'],
+                'status' => $row['status'],
+            ];
+        }, $lines));
         exit;
     }
 

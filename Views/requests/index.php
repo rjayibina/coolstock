@@ -85,11 +85,22 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             <a href="<?= requestTabUrl('history') ?>" class="btn <?= $tab === 'history' ? 'btn-primary' : 'btn-secondary' ?> btn-sm"><?= requestTabLabel('history', $isTechnician) ?></a>
         </div>
 
+        <?php if ($isStaff && $tab === 'pending'): ?>
+        <div id="bulkApproveBar" class="callout" style="display:none; margin-bottom:14px;">
+            <div class="callout-body">
+                <div class="callout-title"><span id="bulkApproveCount">0</span> request<span id="bulkApprovePlural">s</span> selected</div>
+            </div>
+            <button type="button" class="btn btn-primary" onclick="openBulkApproveModal()">Bulk Approve</button>
+            <button type="button" class="btn btn-danger-solid" onclick="openBulkDeclineModal()">Bulk Decline</button>
+        </div>
+        <?php endif; ?>
+
         <div class="table-card">
             <table id="requestsTable">
                 <?php if ($tab === 'pending'): ?>
                 <thead>
                     <tr>
+                        <?php if ($isStaff): ?><th style="width:34px;"><input type="checkbox" id="pendingSelectAll" onchange="togglePendingSelectAll(this)"></th><?php endif; ?>
                         <th>Product</th>
                         <?php if (!$isTechnician): ?><th>Requested By</th><?php endif; ?>
                         <th>Quantity</th>
@@ -99,7 +110,7 @@ function requestTabLabel(string $tab, bool $isTechnician): string
                     </tr>
                 </thead>
                 <tbody>
-                    <?php $pendingCols = 4 + ($isTechnician ? 0 : 1) + ($isStaff ? 1 : 0); ?>
+                    <?php $pendingCols = 4 + ($isTechnician ? 0 : 1) + ($isStaff ? 2 : 0); ?>
                     <?php if (empty($requests)): ?>
                         <tr class="empty-row"><td colspan="<?= $pendingCols ?>">
                             <?= $isTechnician
@@ -108,19 +119,34 @@ function requestTabLabel(string $tab, bool $isTechnician): string
                         </td></tr>
                     <?php else: ?>
                         <?php foreach ($requests as $r): ?>
+                            <?php
+                            $lineCount = (int) ($r['line_count'] ?? 1);
+                            $isBatch = $lineCount > 1;
+                            $displayName = htmlspecialchars($r['model'] ?? 'Unknown product');
+                            $actionLabel = $isBatch ? ($lineCount . ' items') : ($r['model'] ?? 'this item');
+                            ?>
                             <tr>
-                                <td><strong><?= htmlspecialchars($r['model'] ?? 'Unknown product') ?></strong></td>
+                                <?php if ($isStaff): ?>
+                                <td><input type="checkbox" class="pending-request-check" value="<?= (int) $r['transaction_id'] ?>" onchange="syncBulkApproveBar()"></td>
+                                <?php endif; ?>
+                                <td>
+                                    <strong><?= $displayName ?></strong>
+                                    <?php if ($isBatch): ?>
+                                        <button type="button" class="text-link" style="background:none;border:none;padding:0;margin-left:4px;font-size:12px;cursor:pointer;"
+                                                onclick="openRequestBatchModal(<?= htmlspecialchars(json_encode($r['reference_number']), ENT_QUOTES) ?>, <?= $lineCount ?>, <?= htmlspecialchars(json_encode($r['requested_by_name'] ?? $r['technician_name'] ?? ''), ENT_QUOTES) ?>)">+<?= $lineCount - 1 ?> more</button>
+                                    <?php endif; ?>
+                                </td>
                                 <?php if (!$isTechnician): ?>
                                 <td class="cell-muted"><?= htmlspecialchars($r['requested_by_name'] ?? $r['technician_name'] ?? '—') ?></td>
                                 <?php endif; ?>
-                                <td class="cell-id"><?= (int) $r['quantity'] ?></td>
+                                <td class="cell-id"><?= (int) $r['total_quantity'] ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars(format_datetime($r['transaction_date'])) ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars($r['notes'] ?? '—') ?></td>
                                 <?php if ($isStaff): ?>
                                 <td class="actions">
                                     <button type="button" class="btn btn-success btn-sm" onclick="openApproveModal(<?= (int) $r['transaction_id'] ?>)">Approve</button>
                                     <button type="button" class="btn btn-danger btn-sm"
-                                            onclick="openDeclineModal(<?= (int) $r['transaction_id'] ?>, <?= htmlspecialchars(json_encode($r['model'] ?? 'this item'), ENT_QUOTES) ?>)">Decline</button>
+                                            onclick="openDeclineModal(<?= (int) $r['transaction_id'] ?>, <?= htmlspecialchars(json_encode($actionLabel), ENT_QUOTES) ?>)">Decline</button>
                                 </td>
                                 <?php endif; ?>
                             </tr>
@@ -327,12 +353,12 @@ function requestTabLabel(string $tab, bool $isTechnician): string
         <div id="approveModal" class="modal-overlay" onclick="if(event.target===this) closeRequestModal('approveModal')">
             <div class="modal-dialog modal-dialog-sm">
                 <div class="modal-header">
-                    <h3>Approve Request</h3>
+                    <h3 id="ap_title">Approve Request</h3>
                     <button type="button" class="modal-close" onclick="closeRequestModal('approveModal')">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form method="POST" id="approveForm" action="index.php?module=requests&action=approve">
-                        <input type="hidden" name="request_id" id="ap_request_id" value="">
+                        <div id="ap_request_ids"></div>
 
                         <label for="ap_location_id">Release From</label>
                         <select id="ap_location_id" name="location_id" required>
@@ -387,19 +413,51 @@ function requestTabLabel(string $tab, bool $isTechnician): string
         <div id="declineModal" class="modal-overlay" onclick="if(event.target===this) closeRequestModal('declineModal')">
             <div class="modal-dialog modal-dialog-sm">
                 <div class="modal-header">
-                    <h3>Decline Request</h3>
+                    <h3 id="dcl_title">Decline Request</h3>
                     <button type="button" class="modal-close" onclick="closeRequestModal('declineModal')">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p>Decline the request for <strong id="dcl_name"></strong>? This cannot be undone.</p>
-                    <div class="form-actions">
-                        <a id="dcl_confirm_link" href="#" class="btn btn-danger-solid">Decline</a>
-                        <button type="button" class="btn btn-secondary" onclick="closeRequestModal('declineModal')">Cancel</button>
-                    </div>
+                    <form method="POST" id="declineForm" action="index.php?module=requests&action=decline">
+                        <div id="dcl_request_ids"></div>
+                        <p>Decline the request for <strong id="dcl_name"></strong>? This cannot be undone.</p>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-danger-solid">Decline</button>
+                            <button type="button" class="btn btn-secondary" onclick="closeRequestModal('declineModal')">Cancel</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
         <?php endif; ?>
+
+        <?php // "+N more" detail view for a consolidated Pending Requests
+              // row - open to every role (see openRequestBatchModal()),
+              // not staff-only like Approve/Decline/Bulk Approve above. ?>
+        <div id="requestBatchModal" class="modal-overlay" onclick="if(event.target===this) closeRequestModal('requestBatchModal')">
+            <div class="modal-dialog modal-dialog-lg">
+                <div class="modal-header">
+                    <div>
+                        <h3 id="rb-title">Requested Products</h3>
+                        <div id="rb-subtitle" style="font-size:12px;color:var(--text-muted);margin-top:2px;"></div>
+                    </div>
+                    <button type="button" class="modal-close" onclick="closeRequestModal('requestBatchModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rb-rows"></tbody>
+                    </table>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="closeRequestModal('requestBatchModal')">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <script>
         // Out-of-stock products are left out entirely - a Technician can't
@@ -416,6 +474,35 @@ function requestTabLabel(string $tab, bool $isTechnician): string
 
         function closeRequestModal(id) {
             document.getElementById(id)?.classList.remove('open');
+        }
+
+        // Powers the "+N more" link on a consolidated Pending Requests
+        // row - lists every product in that batch (see
+        // ItemRequestController::batch()). Every role can view their own
+        // request's products, not just Warehouse Staff/Admin, so this
+        // lives outside the $isStaff-only script block below.
+        function openRequestBatchModal(referenceNumber, lineCount, requestedBy) {
+            document.getElementById('rb-subtitle').textContent = referenceNumber + (requestedBy ? ' · ' + requestedBy : '');
+            document.getElementById('rb-title').textContent = 'Requested Products (' + lineCount + ')';
+
+            const rows = document.getElementById('rb-rows');
+            rows.innerHTML = '<tr><td colspan="2" style="padding:10px 0;color:var(--text-muted);">Loading...</td></tr>';
+            document.getElementById('requestBatchModal').classList.add('open');
+
+            fetch('index.php?module=requests&action=batch&reference_number=' + encodeURIComponent(referenceNumber))
+                .then(res => res.json())
+                .then(lines => {
+                    if (!Array.isArray(lines) || lines.length === 0) {
+                        rows.innerHTML = '<tr><td colspan="2" style="padding:10px 0;color:var(--text-muted);">No line items found.</td></tr>';
+                        return;
+                    }
+                    rows.innerHTML = lines.map(line =>
+                        '<tr><td>' + (line.model || 'Unknown product').replace(/</g, '&lt;') + '</td><td class="cell-id">' + line.quantity + '</td></tr>'
+                    ).join('');
+                })
+                .catch(() => {
+                    rows.innerHTML = '<tr><td colspan="2" style="padding:10px 0;color:var(--danger);">Couldn\'t load this request\'s products.</td></tr>';
+                });
         }
 
         function openAddRequestModal() {
@@ -481,14 +568,77 @@ function requestTabLabel(string $tab, bool $isTechnician): string
         }
 
         <?php if ($isStaff): ?>
+        // Populates a modal's hidden request_ids[] fields from an array
+        // of ids - one id for a single row's own Approve/Decline button
+        // (the backend expands it to the whole batch if it's part of
+        // one), several ids for the Bulk Approve/Bulk Decline toolbar's
+        // multi-select. Shared by both the Approve and Decline modals.
+        function fillRequestIds(containerId, ids) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            ids.forEach(id => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'request_ids[]';
+                input.value = id;
+                container.appendChild(input);
+            });
+        }
+
+        function selectedPendingIds() {
+            return Array.from(document.querySelectorAll('.pending-request-check:checked')).map(cb => cb.value);
+        }
+
         function openApproveModal(requestId) {
-            document.getElementById('ap_request_id').value = requestId;
+            fillRequestIds('ap_request_ids', [requestId]);
+            document.getElementById('ap_title').textContent = 'Approve Request';
+            document.getElementById('ap_location_id').value = '';
             document.getElementById('approveModal').classList.add('open');
         }
 
+        function openBulkApproveModal() {
+            const ids = selectedPendingIds();
+            if (ids.length === 0) return;
+            fillRequestIds('ap_request_ids', ids);
+            document.getElementById('ap_title').textContent = 'Approve ' + ids.length + ' Request' + (ids.length === 1 ? '' : 's');
+            document.getElementById('ap_location_id').value = '';
+            document.getElementById('approveModal').classList.add('open');
+        }
+
+        function togglePendingSelectAll(checkbox) {
+            document.querySelectorAll('.pending-request-check').forEach(cb => { cb.checked = checkbox.checked; });
+            syncBulkApproveBar();
+        }
+
+        function syncBulkApproveBar() {
+            const checks = document.querySelectorAll('.pending-request-check');
+            const checked = Array.from(checks).filter(cb => cb.checked);
+            const bar = document.getElementById('bulkApproveBar');
+            if (bar) {
+                bar.style.display = checked.length > 0 ? 'flex' : 'none';
+                document.getElementById('bulkApproveCount').textContent = checked.length;
+                document.getElementById('bulkApprovePlural').textContent = checked.length === 1 ? '' : 's';
+            }
+            const selectAll = document.getElementById('pendingSelectAll');
+            if (selectAll) {
+                selectAll.checked = checks.length > 0 && checked.length === checks.length;
+                selectAll.indeterminate = checked.length > 0 && checked.length < checks.length;
+            }
+        }
+
         function openDeclineModal(requestId, model) {
+            fillRequestIds('dcl_request_ids', [requestId]);
+            document.getElementById('dcl_title').textContent = 'Decline Request';
             document.getElementById('dcl_name').textContent = model;
-            document.getElementById('dcl_confirm_link').href = 'index.php?module=requests&action=decline&id=' + requestId;
+            document.getElementById('declineModal').classList.add('open');
+        }
+
+        function openBulkDeclineModal() {
+            const ids = selectedPendingIds();
+            if (ids.length === 0) return;
+            fillRequestIds('dcl_request_ids', ids);
+            document.getElementById('dcl_title').textContent = 'Decline ' + ids.length + ' Request' + (ids.length === 1 ? '' : 's');
+            document.getElementById('dcl_name').textContent = ids.length + ' selected request' + (ids.length === 1 ? '' : 's');
             document.getElementById('declineModal').classList.add('open');
         }
 
@@ -616,7 +766,7 @@ function requestTabLabel(string $tab, bool $isTechnician): string
 
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
-                ['addRequestModal', 'approveModal', 'returnModal', 'declineModal'].forEach(closeRequestModal);
+                ['addRequestModal', 'approveModal', 'returnModal', 'declineModal', 'requestBatchModal'].forEach(closeRequestModal);
             }
         });
         </script>
