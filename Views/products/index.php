@@ -176,6 +176,7 @@ require __DIR__ . '/../partials/header.php';
                         <tr>
                             <th style="width:36px;"><input type="checkbox" id="selectAll" class="row-check" onclick="toggleAllProducts(this)"></th>
                             <th style="width:60px;">ID</th>
+                            <th style="width:52px;">Image</th>
                             <th>Model</th>
                             <th>Category</th>
                             <th>Brand</th>
@@ -187,13 +188,20 @@ require __DIR__ . '/../partials/header.php';
                     <tbody>
                         <?php if (empty($items)): ?>
                             <tr class="empty-row">
-                                <td colspan="8">No products match these filters.</td>
+                                <td colspan="9">No products match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($items as $it): ?>
                                 <tr class="product-row<?= (int) $it['total_quantity'] === 0 ? ' out-of-stock' : '' ?>" onclick="handleProductRowClick(event, <?= $it['item_id'] ?>)">
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $it['item_id'] ?>" class="row-check product-check" onchange="updateBulkBar()"></td>
                                     <td class="cell-id"><?= (int) $it['item_id'] ?></td>
+                                    <td>
+                                        <?php if (!empty($it['image_path'])): ?>
+                                            <img src="<?= htmlspecialchars($it['image_path']) ?>" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
+                                        <?php else: ?>
+                                            <div style="width:36px;height:36px;border-radius:6px;background:var(--bg-muted,#F4F5FA);border:1px solid var(--border);"></div>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><strong><?= htmlspecialchars($it['model']) ?></strong></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['category_name'] ?? 'Uncategorized') ?></td>
                                     <td class="cell-muted"><?= htmlspecialchars($it['brand_name'] ?? '—') ?></td>
@@ -239,6 +247,10 @@ require __DIR__ . '/../partials/header.php';
                     <button type="button" class="modal-close" onclick="document.getElementById('viewProductModal').classList.remove('open')">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div class="detail-row" id="vpm-photo-row" style="display:none;">
+                        <div class="detail-label">Image</div>
+                        <div class="detail-value"><img id="vpm-photo" src="" alt=""></div>
+                    </div>
                     <div class="detail-row"><div class="detail-label">Item ID</div><div class="detail-value" id="vpm-itemid"></div></div>
                     <div class="detail-row"><div class="detail-label">Category</div><div class="detail-value" id="vpm-category"></div></div>
                     <div class="detail-row"><div class="detail-label">Brand</div><div class="detail-value" id="vpm-brand"></div></div>
@@ -274,7 +286,11 @@ require __DIR__ . '/../partials/header.php';
                     <button type="button" class="modal-close" onclick="closeModal('addProductModal')">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <form method="POST" id="addProductForm" action="index.php?module=products&action=create">
+                    <form method="POST" id="addProductForm" action="index.php?module=products&action=create" enctype="multipart/form-data">
+                        <label for="ap_product_image">Product Image <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <input type="file" id="ap_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
+                               style="margin-bottom:18px;">
+
                         <label for="ap_model">Model</label>
                         <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM" maxlength="100" required>
 
@@ -354,8 +370,20 @@ require __DIR__ . '/../partials/header.php';
                     <button type="button" class="modal-close" onclick="closeModal('editProductModal')">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <form method="POST" id="editProductForm" action="index.php?module=products&action=edit">
+                    <form method="POST" id="editProductForm" action="index.php?module=products&action=edit" enctype="multipart/form-data">
                         <input type="hidden" name="item_id" id="ep_item_id" value="">
+
+                        <label for="ep_product_image">Product Image <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <div id="ep_current_image_row" style="display:none;align-items:center;gap:12px;margin-bottom:10px;">
+                            <img id="ep_current_image" src="" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+                            <label style="display:flex;align-items:center;gap:6px;font-weight:500;font-size:13px;color:var(--text-muted);margin:0;">
+                                <input type="checkbox" name="remove_image" id="ep_remove_image" value="1" style="width:auto;">
+                                Remove this image
+                            </label>
+                        </div>
+                        <input type="file" id="ep_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
+                               style="margin-bottom:6px;">
+                        <div style="font-size:12px;color:var(--text-muted);margin-bottom:18px;">Leave empty to keep the current image, or choose a new file to replace it.</div>
 
                         <label for="ep_category_id">Category</label>
                         <select id="ep_category_id" name="category_id" required>
@@ -555,6 +583,13 @@ require __DIR__ . '/../partials/header.php';
             if (!p) return;
 
             document.getElementById('vpm-name').textContent = p.model;
+            const photoRow = document.getElementById('vpm-photo-row');
+            if (p.image_path) {
+                document.getElementById('vpm-photo').src = p.image_path;
+                photoRow.style.display = '';
+            } else {
+                photoRow.style.display = 'none';
+            }
             document.getElementById('vpm-itemid').textContent = p.item_id;
             document.getElementById('vpm-category').textContent = p.category_name || 'Uncategorized';
             document.getElementById('vpm-brand').textContent = p.brand_name || '—';
@@ -628,6 +663,15 @@ require __DIR__ . '/../partials/header.php';
 
             document.getElementById('ep_item_id').value = id;
             document.getElementById('editProductForm').action = 'index.php?module=products&action=edit&id=' + id;
+            document.getElementById('ep_product_image').value = '';
+            document.getElementById('ep_remove_image').checked = false;
+            const currentImageRow = document.getElementById('ep_current_image_row');
+            if (p.image_path) {
+                document.getElementById('ep_current_image').src = p.image_path;
+                currentImageRow.style.display = 'flex';
+            } else {
+                currentImageRow.style.display = 'none';
+            }
             document.getElementById('ep_model').value = p.model || '';
             document.getElementById('ep_brand_id').value = p.brand_id || '';
             document.getElementById('ep_item_type_id').value = p.item_type_id || '';

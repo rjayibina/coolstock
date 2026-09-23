@@ -467,10 +467,27 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             'item_id' => (int) $it['item_id'],
             'model' => $it['model'],
             'category_name' => $it['category_name'] ?? 'Uncategorized',
+            'image_path' => $it['image_path'] ?? null,
+            // Total across every location - the most this item could ever
+            // be requested for, even before a single Approve narrows it
+            // further to whichever one location releases it. Caps the
+            // quantity input below; ItemRequestController::create() re-
+            // checks the same limit server-side since this is advisory only.
+            'total_quantity' => (int) ($it['total_quantity'] ?? 0),
         ], $requestableItems), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
         const requestAddedItemIds = new Set();
         const REQUEST_BROWSE_PAGE_SIZE = 10;
         let requestBrowsePage = 1;
+
+        // Small product thumbnail (or a blank placeholder when the product
+        // has no photo - image_path is always optional) used everywhere a
+        // Technician picks a product, so they can identify it by sight, not
+        // just by model name.
+        function requestThumbHtml(p) {
+            return p.image_path
+                ? '<img src="' + htmlEscapeRequests(p.image_path) + '" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0;">'
+                : '<div style="width:32px;height:32px;border-radius:6px;background:var(--bg-muted,#F4F5FA);border:1px solid var(--border);flex-shrink:0;"></div>';
+        }
 
         function closeRequestModal(id) {
             document.getElementById(id)?.classList.remove('open');
@@ -543,9 +560,10 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             const pageItems = products.slice(start, start + REQUEST_BROWSE_PAGE_SIZE);
 
             listEl.innerHTML = pageItems.map(p =>
-                '<div class="search-result-item" onclick="addRequestLineItem(' + p.item_id + ')">'
-                    + '<strong>' + htmlEscapeRequests(p.model) + '</strong>'
-                    + '<span class="cell-muted">' + htmlEscapeRequests(p.category_name) + '</span>'
+                '<div class="search-result-item" onclick="addRequestLineItem(' + p.item_id + ')" style="display:flex;gap:10px;">'
+                    + requestThumbHtml(p)
+                    + '<span style="flex:1;"><strong>' + htmlEscapeRequests(p.model) + '</strong>'
+                    + '<span class="cell-muted"> ' + htmlEscapeRequests(p.category_name) + '</span></span>'
                     + '</div>'
             ).join('');
 
@@ -704,9 +722,10 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             }
 
             dropdown.innerHTML = matches.map(p =>
-                '<div class="search-result-item" onclick="addRequestLineItem(' + p.item_id + ')">'
-                    + '<strong>' + htmlEscapeRequests(p.model) + '</strong>'
-                    + '<span class="cell-muted">' + htmlEscapeRequests(p.category_name) + '</span>'
+                '<div class="search-result-item" onclick="addRequestLineItem(' + p.item_id + ')" style="display:flex;gap:10px;">'
+                    + requestThumbHtml(p)
+                    + '<span style="flex:1;"><strong>' + htmlEscapeRequests(p.model) + '</strong>'
+                    + '<span class="cell-muted"> ' + htmlEscapeRequests(p.category_name) + '</span></span>'
                     + '</div>'
             ).join('');
             dropdown.style.display = '';
@@ -726,11 +745,12 @@ function requestTabLabel(string $tab, bool $isTechnician): string
             row.id = 'rli_row_' + itemId;
             row.style.cssText = 'display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);';
             row.innerHTML = `
+                ${requestThumbHtml(product)}
                 <div style="flex:1;">
                     <strong>${htmlEscapeRequests(product.model)}</strong>
                     <div class="cell-muted" style="font-size:12.5px;">${htmlEscapeRequests(product.category_name)}</div>
                 </div>
-                <input type="number" name="quantities[${itemId}]" min="1" step="1" placeholder="Quantity" value="1" style="width:110px;margin-bottom:0;" required>
+                <input type="number" name="quantities[${itemId}]" min="1" max="${product.total_quantity}" step="1" placeholder="Quantity" value="1" title="Only ${product.total_quantity} in stock across all locations" style="width:110px;margin-bottom:0;" required>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="removeRequestLineItem(${itemId})">Remove</button>
             `;
             document.getElementById('requestLineItems').appendChild(row);

@@ -26,7 +26,11 @@ $old = $_POST ?? [];
         <?php endif; ?>
 
         <div class="form-card">
-            <form method="POST" id="addProductForm" action="index.php?module=products&action=create">
+            <form method="POST" id="addProductForm" action="index.php?module=products&action=create" enctype="multipart/form-data">
+                <label for="product_image">Product Image <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                <input type="file" id="product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
+                       style="margin-bottom:18px;">
+
                 <label for="model">Model</label>
                 <input type="text" id="model" name="model" placeholder="e.g. FTKC50UVM" maxlength="100"
                        value="<?= htmlspecialchars($old['model'] ?? '') ?>" required>

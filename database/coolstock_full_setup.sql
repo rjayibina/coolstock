@@ -75,6 +75,10 @@ CREATE TABLE inventory_items (
     installation_type VARCHAR(50) DEFAULT NULL,
     power_input VARCHAR(50) DEFAULT NULL,
     year INT DEFAULT NULL,
+    -- Optional product photo, relative path under assets/uploads/products/
+    -- (e.g. "assets/uploads/products/product_....jpg"). Never required -
+    -- purely to help staff/technicians visually identify a product.
+    image_path VARCHAR(255) DEFAULT NULL,
     FOREIGN KEY (category_id) REFERENCES item_categories(category_id)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,

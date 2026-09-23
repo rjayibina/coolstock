@@ -11,10 +11,15 @@ require_once __DIR__ . '/../Config/Database.php';
  * No location_id and no stock-quantity column of its own - an item's
  * location(s) and quantity now come from item_stock (see ItemStock.php),
  * one row per (item, location) pair, kept in sync by Stock In/Out
- * transactions. item_name, description, unit_of_measure, and image_path
- * stay dropped from the strict-ERD-compliance rework. There is no name
- * field left, so `model` is the de-facto display name everywhere - it's
- * required, unlike the rest of the spec fields which stay optional.
+ * transactions. item_name, description, and unit_of_measure stay dropped
+ * from the strict-ERD-compliance rework. There is no name field left, so
+ * `model` is the de-facto display name everywhere - it's required, unlike
+ * the rest of the spec fields which stay optional.
+ *
+ * image_path (see migration_add_product_image.sql) was re-added on top of
+ * that rework as a purely optional product photo - relative path under
+ * assets/uploads/products/, or null. It exists only to help staff and
+ * technicians visually identify a product; nothing in the app requires it.
  */
 class InventoryItem
 {
@@ -33,6 +38,7 @@ class InventoryItem
     public ?string $installation_type = null;
     public ?string $power_input = null;
     public ?int $year = null;
+    public ?string $image_path = null;
 
     public function __construct()
     {
@@ -44,10 +50,10 @@ class InventoryItem
     {
         $query = "INSERT INTO {$this->table}
                     (category_id, brand_id, item_type_id, model, energy_rating,
-                     monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year)
+                     monthly_consumption, cooling_capacity, refrigerant, installation_type, power_input, year, image_path)
                   VALUES
                     (:category_id, :brand_id, :item_type_id, :model, :energy_rating,
-                     :monthly_consumption, :cooling_capacity, :refrigerant, :installation_type, :power_input, :year)";
+                     :monthly_consumption, :cooling_capacity, :refrigerant, :installation_type, :power_input, :year, :image_path)";
 
         $stmt = $this->conn->prepare($query);
         if ($this->category_id === null) {
@@ -80,6 +86,11 @@ class InventoryItem
             $stmt->bindValue(':year', null, PDO::PARAM_NULL);
         } else {
             $stmt->bindValue(':year', $this->year, PDO::PARAM_INT);
+        }
+        if ($this->image_path === null) {
+            $stmt->bindValue(':image_path', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':image_path', $this->image_path);
         }
 
         return $stmt->execute();
@@ -214,7 +225,8 @@ class InventoryItem
                     refrigerant = :refrigerant,
                     installation_type = :installation_type,
                     power_input = :power_input,
-                    year = :year
+                    year = :year,
+                    image_path = :image_path
                   WHERE item_id = :item_id";
 
         $stmt = $this->conn->prepare($query);
@@ -248,6 +260,11 @@ class InventoryItem
             $stmt->bindValue(':year', null, PDO::PARAM_NULL);
         } else {
             $stmt->bindValue(':year', $this->year, PDO::PARAM_INT);
+        }
+        if ($this->image_path === null) {
+            $stmt->bindValue(':image_path', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':image_path', $this->image_path);
         }
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
 

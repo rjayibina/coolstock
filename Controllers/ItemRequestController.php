@@ -144,15 +144,23 @@ class ItemRequestController
 
         // A Technician can't request a product that has zero stock across
         // every location - there'd be nothing for Warehouse Staff to
-        // release at approval time. The catalog search already leaves
-        // these out (Views/requests/index.php), but that's client-side
-        // only, so re-check here against the live totals before writing
-        // anything.
+        // release at approval time. Nor can they request MORE than the
+        // product's current total across every location combined - that
+        // total is the most any single Approve could ever release, even
+        // before the single-location constraint at approval time narrows
+        // it further. The catalog search's quantity inputs already reflect
+        // both of these client-side (see Views/requests/index.php), but
+        // that's advisory only, so re-check here against the live totals
+        // before writing anything.
         $totals = $this->itemStock->totalsForItems(array_keys($lines));
         $outOfStock = [];
-        foreach (array_keys($lines) as $itemId) {
-            if (($totals[$itemId] ?? 0) <= 0) {
+        $exceedsStock = [];
+        foreach ($lines as $itemId => $qty) {
+            $available = $totals[$itemId] ?? 0;
+            if ($available <= 0) {
                 $outOfStock[] = $itemId;
+            } elseif ($qty > $available) {
+                $exceedsStock[$itemId] = $available;
             }
         }
         if (!empty($outOfStock)) {
@@ -162,6 +170,18 @@ class ItemRequestController
             );
             header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode(
                 "Out of stock, can't be requested: " . implode(', ', $names)
+            ));
+            exit;
+        }
+        if (!empty($exceedsStock)) {
+            $descriptions = array_map(
+                fn($id, $available) => ($this->item->readOne($id)['model'] ?? "item #{$id}")
+                    . " (requested {$lines[$id]}, only {$available} in stock)",
+                array_keys($exceedsStock),
+                array_values($exceedsStock)
+            );
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode(
+                "Requested quantity exceeds current stock: " . implode('; ', $descriptions)
             ));
             exit;
         }

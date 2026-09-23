@@ -20,6 +20,7 @@ class InventoryItemController
     private ItemType $itemType;
     private Location $location;
     private ItemStock $itemStock;
+    private string $uploadDir;
 
     public function __construct()
     {
@@ -29,6 +30,7 @@ class InventoryItemController
         $this->itemType = new ItemType();
         $this->location = new Location();
         $this->itemStock = new ItemStock();
+        $this->uploadDir = __DIR__ . '/../assets/uploads/products/';
     }
 
     private const PER_PAGE = 10;
@@ -130,7 +132,15 @@ class InventoryItemController
             $error = $this->validate($_POST, true);
 
             if (!$error) {
+                [$imagePath, $uploadError] = $this->handleImageUpload();
+                if ($uploadError) {
+                    $error = $uploadError;
+                }
+            }
+
+            if (!$error) {
                 $this->hydrate($this->item, $_POST);
+                $this->item->image_path = $imagePath;
 
                 if ($this->item->create()) {
                     // Location isn't a column on the product itself (stock is
@@ -172,11 +182,20 @@ class InventoryItemController
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = $this->validate($_POST);
-            $data = array_merge(['item_id' => $id], $_POST);
+            $existing = $this->item->readOne($id);
+            $data = array_merge($existing ?: [], ['item_id' => $id], $_POST);
+
+            if (!$error) {
+                [$imagePath, $uploadError] = $this->handleImageUpload($existing['image_path'] ?? null);
+                if ($uploadError) {
+                    $error = $uploadError;
+                }
+            }
 
             if (!$error) {
                 $this->item->item_id = $id;
                 $this->hydrate($this->item, $_POST);
+                $this->item->image_path = $imagePath;
 
                 if ($this->item->update()) {
                     header("Location: index.php?module=products&action=index&status=updated");
@@ -211,12 +230,16 @@ class InventoryItemController
         exit;
     }
 
-    /** Delete a product */
+    /** Delete a product (and its uploaded image, if any) */
     public function delete(): void
     {
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
         if ($id > 0) {
+            $existing = $this->item->readOne($id);
+            if ($existing && !empty($existing['image_path'])) {
+                $this->deleteImageFile($existing['image_path']);
+            }
             $this->item->delete($id);
         }
 
@@ -460,5 +483,93 @@ class InventoryItemController
         $item->installation_type = $isAsset ? (trim($input['installation_type'] ?? '') ?: null) : null;
         $item->power_input = $isAsset ? (trim($input['power_input'] ?? '') ?: null) : null;
         $item->year = $isAsset && is_numeric($input['year'] ?? '') ? (int) $input['year'] : null;
+    }
+
+    /**
+     * Handles an optional product_image upload. Returns [imagePath, error].
+     * Purely optional - a blank file input on create just returns [null, null],
+     * and on edit it falls back to $keepExisting (the current image_path)
+     * unless the "Remove this image" checkbox was ticked.
+     */
+    private function handleImageUpload(?string $keepExisting = null): array
+    {
+        // "Remove image" checkbox takes effect only when no new file is chosen
+        // (uploading a new file always wins over a stale "remove" checkbox state)
+        if (empty($_FILES['product_image']['name']) && !empty($_POST['remove_image'])) {
+            if ($keepExisting) {
+                $this->deleteImageFile($keepExisting);
+            }
+            return [null, null];
+        }
+
+        if (empty($_FILES['product_image']['name'])) {
+            return [$keepExisting, null];
+        }
+
+        $file = $_FILES['product_image'];
+
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $message = match ($file['error']) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE =>
+                    "That image is larger than this server allows (PHP's upload_max_filesize / post_max_size in php.ini). "
+                    . "Either use a smaller image or raise those two values and restart the web server.",
+                UPLOAD_ERR_PARTIAL => "The image only partially uploaded. Please try again.",
+                UPLOAD_ERR_NO_TMP_DIR => "The server has no temporary folder configured for uploads.",
+                UPLOAD_ERR_CANT_WRITE => "The server couldn't write the uploaded file to disk.",
+                default => "Image upload failed (error code {$file['error']}). Please try again.",
+            };
+            return [$keepExisting, $message];
+        }
+
+        $allowed = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif', 'webp' => 'image/webp'];
+        $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+        if (!array_key_exists($extension, $allowed)) {
+            return [$keepExisting, "Product image must be a JPG, PNG, GIF, or WEBP file."];
+        }
+
+        // Verify the file's actual content matches an image, not just its extension
+        $imageInfo = @getimagesize($file['tmp_name']);
+        if ($imageInfo === false) {
+            return [$keepExisting, "That file doesn't look like a valid image. Please choose a JPG, PNG, GIF, or WEBP file."];
+        }
+
+        if ($file['size'] > 5 * 1024 * 1024) {
+            return [$keepExisting, "Product image must be smaller than 5MB."];
+        }
+
+        if (!is_dir($this->uploadDir)) {
+            if (!mkdir($this->uploadDir, 0755, true) && !is_dir($this->uploadDir)) {
+                $absolutePath = realpath(__DIR__ . '/../assets/uploads') ?: (__DIR__ . '/../assets/uploads');
+                return [$keepExisting, "The upload folder doesn't exist and couldn't be created automatically. "
+                    . "Create it manually at: {$absolutePath}/products"];
+            }
+        }
+
+        if (!is_writable($this->uploadDir)) {
+            $absolutePath = realpath($this->uploadDir) ?: $this->uploadDir;
+            return [$keepExisting, "The server can't write to the upload folder ({$absolutePath}). Check its permissions."];
+        }
+
+        $filename = uniqid('product_', true) . '.' . $extension;
+        if (!move_uploaded_file($file['tmp_name'], $this->uploadDir . $filename)) {
+            $absolutePath = realpath($this->uploadDir) ?: $this->uploadDir;
+            return [$keepExisting, "Could not save the uploaded image to {$absolutePath}. Check its permissions and that PHP's temp upload folder is accessible."];
+        }
+
+        // Replacing an image on edit - clean up the old file
+        if ($keepExisting) {
+            $this->deleteImageFile($keepExisting);
+        }
+
+        return ['assets/uploads/products/' . $filename, null];
+    }
+
+    private function deleteImageFile(string $imagePath): void
+    {
+        $fullPath = __DIR__ . '/../' . $imagePath;
+        if (is_file($fullPath)) {
+            @unlink($fullPath);
+        }
     }
 }
