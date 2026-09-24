@@ -29,6 +29,10 @@ class Report
     public ?string $date_from = null;
     public ?string $date_to = null;
     public ?string $generated_by = null;
+    // FK to users.user_id - the account signed in when the report was
+    // generated. generated_by is kept as-is alongside it, as a
+    // point-in-time name snapshot (see migration_add_user_id_to_transactions_reports.sql).
+    public ?int $user_id = null;
     public ?string $notes = null;
 
     public function __construct()
@@ -49,13 +53,18 @@ class Report
     public function create(): bool
     {
         $stmt = $this->conn->prepare(
-            "INSERT INTO {$this->table} (report_type, date_from, date_to, generated_by, notes)
-             VALUES (:report_type, :date_from, :date_to, :generated_by, :notes)"
+            "INSERT INTO {$this->table} (report_type, date_from, date_to, generated_by, user_id, notes)
+             VALUES (:report_type, :date_from, :date_to, :generated_by, :user_id, :notes)"
         );
         $stmt->bindValue(':report_type', $this->report_type);
         $stmt->bindValue(':date_from', $this->date_from);
         $stmt->bindValue(':date_to', $this->date_to);
         $stmt->bindValue(':generated_by', $this->generated_by);
+        if ($this->user_id === null) {
+            $stmt->bindValue(':user_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':user_id', $this->user_id, PDO::PARAM_INT);
+        }
         $stmt->bindValue(':notes', $this->notes);
         return $stmt->execute();
     }

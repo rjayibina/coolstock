@@ -68,6 +68,7 @@ class TransferController
                     $this->transaction->serial_number = null;
                     $this->transaction->transaction_date = $date;
                     $this->transaction->technician_name = $movedBy;
+                    $this->transaction->user_id = current_user()['user_id'] ?? null;
                     $this->transaction->supplier_name = null;
                     $this->transaction->notes = $notes;
                     $this->transaction->status = 'completed';

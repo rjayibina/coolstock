@@ -12,6 +12,7 @@ $pageTitle = 'Locations';
 $activeSection = 'inventory';
 $activeSubNav = 'locations';
 $count = $pagination['totalCount'];
+$canManageLocations = has_role('admin');
 require __DIR__ . '/../partials/header.php';
 
 // Builds a pagination link that keeps the current sort
@@ -33,10 +34,12 @@ function locationPageUrl(int $page): string
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     <input type="text" id="locationSearch" placeholder="Search locations..." onkeyup="filterLocations()">
                 </div>
+                <?php if ($canManageLocations): ?>
                 <button type="button" class="btn btn-primary" onclick="openAddLocationModal()">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add Location
                 </button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -58,6 +61,8 @@ function locationPageUrl(int $page): string
             <div class="alert alert-warning">Location name must be at most 100 characters.</div>
         <?php elseif ($status === 'error'): ?>
             <div class="alert alert-warning">Something went wrong. Please try again.</div>
+        <?php elseif ($status === 'forbidden'): ?>
+            <div class="alert alert-warning">Only an Administrator can add, edit, or delete locations.</div>
         <?php endif; ?>
 
         <div class="sort-bar">
@@ -71,36 +76,46 @@ function locationPageUrl(int $page): string
         </div>
 
         <form method="POST" id="bulkLocationForm">
+            <?php if ($canManageLocations): ?>
             <div id="bulkBar" class="bulk-bar">
                 <span><strong id="bulkCount">0</strong> selected</span>
                 <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDeleteLocationModal()">Delete Selected</button>
             </div>
+            <?php endif; ?>
 
             <div class="table-card">
                 <table id="locationTable">
                     <thead>
                         <tr>
+                            <?php if ($canManageLocations): ?>
                             <th style="width:36px;"><input type="checkbox" id="selectAllLocations" class="row-check" onclick="toggleAllLocations(this)"></th>
+                            <?php endif; ?>
                             <th style="width:60px;">ID</th>
                             <th>Name</th>
+                            <?php if ($canManageLocations): ?>
                             <th style="width:150px;">Actions</th>
+                            <?php endif; ?>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($locations)): ?>
                             <tr class="empty-row">
-                                <td colspan="4">No locations yet.</td>
+                                <td colspan="<?= $canManageLocations ? 4 : 2 ?>">No locations yet.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($locations as $l): ?>
                                 <tr>
+                                    <?php if ($canManageLocations): ?>
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $l['location_id'] ?>" class="row-check location-check" onchange="updateBulkBarLocations()"></td>
+                                    <?php endif; ?>
                                     <td class="cell-id"><?= (int) $l['location_id'] ?></td>
                                     <td><strong><?= htmlspecialchars($l['location_name']) ?></strong></td>
+                                    <?php if ($canManageLocations): ?>
                                     <td class="actions">
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditLocationModal(<?= $l['location_id'] ?>)">Edit</button>
                                         <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteLocationModal(<?= $l['location_id'] ?>)">Delete</button>
                                     </td>
+                                    <?php endif; ?>
                                 </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -130,6 +145,7 @@ function locationPageUrl(int $page): string
             </div>
         <?php endif; ?>
 
+        <?php if ($canManageLocations): ?>
         <div id="addLocationModal" class="modal-overlay" onclick="if(event.target===this) closeModal('addLocationModal')">
             <div class="modal-dialog">
                 <div class="modal-header">
@@ -205,6 +221,7 @@ function locationPageUrl(int $page): string
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <script>
         const locationsData = <?= json_encode(array_column($locations, null, 'location_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;

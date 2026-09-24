@@ -1,9 +1,13 @@
 <?php
 require_once __DIR__ . '/../Models/Location.php';
+require_once __DIR__ . '/../Helpers/auth.php';
 
 /**
  * LocationController.php
  * Sits between the router (index.php), the Location model, and the views.
+ * Viewing locations is open to admin and warehouse_staff (both need the
+ * list to pick a location on Delivery/Transfer/Stock Out forms), but
+ * adding, editing, and deleting a location is restricted to admin only.
  */
 class LocationController
 {
@@ -41,6 +45,11 @@ class LocationController
     /** Create a location (called from the Add Location modal) */
     public function create(): void
     {
+        if (!has_role('admin')) {
+            header("Location: index.php?module=locations&action=index&status=forbidden");
+            exit;
+        }
+
         $name = trim($_POST['location_name'] ?? '');
 
         if ($name === '') {
@@ -66,6 +75,11 @@ class LocationController
     /** Update a location (called from the Edit Location modal) */
     public function edit(): void
     {
+        if (!has_role('admin')) {
+            header("Location: index.php?module=locations&action=index&status=forbidden");
+            exit;
+        }
+
         $id = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($_POST['location_id'] ?? 0);
         $name = trim($_POST['location_name'] ?? '');
 
@@ -98,6 +112,11 @@ class LocationController
     /** Delete a location */
     public function delete(): void
     {
+        if (!has_role('admin')) {
+            header("Location: index.php?module=locations&action=index&status=forbidden");
+            exit;
+        }
+
         $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
         if ($id > 0) {
@@ -115,6 +134,11 @@ class LocationController
     /** Bulk delete a set of locations - skips any still holding products */
     public function bulkDelete(): void
     {
+        if (!has_role('admin')) {
+            header("Location: index.php?module=locations&action=index&status=forbidden");
+            exit;
+        }
+
         $ids = array_filter(array_map('intval', $_POST['selected_ids'] ?? []));
 
         if (!empty($ids)) {

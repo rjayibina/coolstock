@@ -203,6 +203,7 @@ class ItemRequestController
             $this->transaction->serial_number = null;
             $this->transaction->transaction_date = $date;
             $this->transaction->technician_name = $requestedBy;
+            $this->transaction->user_id = $viewer['user_id'] ?? null;
             $this->transaction->supplier_name = null;
             $this->transaction->notes = $notes;
             $this->transaction->source = 'manual';
@@ -329,6 +330,7 @@ class ItemRequestController
                 $this->transaction->serial_number = null;
                 $this->transaction->transaction_date = date('Y-m-d');
                 $this->transaction->technician_name = $viewer['full_name'] ?? '';
+                $this->transaction->user_id = $viewer['user_id'] ?? null;
                 $this->transaction->supplier_name = null;
                 $this->transaction->notes = $request['notes'];
                 $this->transaction->source = 'manual';
@@ -463,6 +465,7 @@ class ItemRequestController
         $this->transaction->serial_number = null;
         $this->transaction->transaction_date = date('Y-m-d');
         $this->transaction->technician_name = $viewer['full_name'] ?? '';
+        $this->transaction->user_id = $viewer['user_id'] ?? null;
         $this->transaction->supplier_name = null;
         $this->transaction->notes = $notes;
         $this->transaction->source = 'manual';

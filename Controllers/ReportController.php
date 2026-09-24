@@ -75,6 +75,7 @@ class ReportController
         $this->report->date_from = $dateFrom !== '' ? $dateFrom : null;
         $this->report->date_to = $dateTo !== '' ? $dateTo : null;
         $this->report->generated_by = $viewer['full_name'] ?? null;
+        $this->report->user_id = $viewer['user_id'] ?? null;
         $this->report->notes = $notes !== '' ? $notes : null;
         $this->report->create();
 

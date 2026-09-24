@@ -192,6 +192,7 @@ CREATE TABLE `reports` (
   `date_from` date DEFAULT NULL,
   `date_to` date DEFAULT NULL,
   `generated_by` varchar(100) DEFAULT NULL,
+  `user_id` int(11) DEFAULT NULL,
   `notes` text DEFAULT NULL,
   `generated_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -200,8 +201,8 @@ CREATE TABLE `reports` (
 -- Dumping data for table `reports`
 --
 
-INSERT INTO `reports` (`report_id`, `report_type`, `date_from`, `date_to`, `generated_by`, `notes`, `generated_at`) VALUES
-(1, 'stock_summary', NULL, NULL, 'Hyacinth Maris Betinol', 'test stock summary report - 09/20/2026', '2026-09-19 16:09:15');
+INSERT INTO `reports` (`report_id`, `report_type`, `date_from`, `date_to`, `generated_by`, `user_id`, `notes`, `generated_at`) VALUES
+(1, 'stock_summary', NULL, NULL, 'Hyacinth Maris Betinol', 2, 'test stock summary report - 09/20/2026', '2026-09-19 16:09:15');
 
 -- --------------------------------------------------------
 
@@ -221,6 +222,7 @@ CREATE TABLE `transactions` (
   `serial_number` varchar(100) DEFAULT NULL,
   `transaction_date` date DEFAULT NULL,
   `technician_name` varchar(100) DEFAULT NULL,
+  `user_id` int(11) DEFAULT NULL,
   `supplier_name` varchar(150) DEFAULT NULL,
   `notes` text DEFAULT NULL,
   `source` enum('manual','auto') NOT NULL DEFAULT 'manual',
@@ -234,55 +236,55 @@ CREATE TABLE `transactions` (
 -- Dumping data for table `transactions`
 --
 
-INSERT INTO `transactions` (`transaction_id`, `item_id`, `location_id`, `to_location_id`, `transaction_type`, `reference_number`, `manually_added`, `quantity`, `serial_number`, `transaction_date`, `technician_name`, `supplier_name`, `notes`, `source`, `status`, `related_transaction_id`, `damaged_quantity`, `created_at`) VALUES
-(1, 1, 1, NULL, 'stock_in', NULL, 0, 10, NULL, '2026-06-15', 'Hyacinth Maris Betinol', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(2, 1, 2, NULL, 'stock_in', NULL, 0, 3, NULL, '2026-06-15', 'Hyacinth Maris Betinol', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(3, 1, 1, NULL, 'stock_out', NULL, 0, 2, NULL, '2026-07-20', 'Hyacinth Maris Betinol', NULL, 'Installed at client site - Barangay Lahug.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(4, 1, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-07-25', 'Erjhon Dapiton', NULL, 'Released for a warehouse-side installation job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(5, 2, 2, NULL, 'stock_in', NULL, 0, 6, NULL, '2026-06-20', 'Rejames Augusto', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(6, 3, 1, NULL, 'stock_in', NULL, 0, 4, NULL, '2026-07-01', 'Paul Steve Fajardo', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(7, 4, 2, NULL, 'stock_in', NULL, 0, 3, NULL, '2026-05-10', 'Hyacinth Maris Betinol', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(8, 4, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-08-01', 'Hyacinth Maris Betinol', NULL, 'Released for a commercial installation - conference room unit.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(9, 4, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-09-08', 'Hyacinth Maris Betinol', NULL, 'Released for a residential retrofit job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(10, 5, 1, NULL, 'stock_in', NULL, 0, 15, NULL, '2026-06-01', 'Hyacinth Maris Betinol', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(11, 5, 1, NULL, 'stock_out', NULL, 0, 3, NULL, '2026-07-10', 'Hyacinth Maris Betinol', NULL, 'Released for a residential installation - client delivery.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(12, 6, 2, NULL, 'stock_in', NULL, 0, 5, NULL, '2026-06-25', 'Erjhon Dapiton', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(13, 6, 2, NULL, 'stock_out', NULL, 0, 2, NULL, '2026-08-25', 'Erjhon Dapiton', NULL, 'Released for a residential installation - client delivery.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(14, 6, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-09-10', 'Erjhon Dapiton', NULL, 'Released for a follow-up unit swap.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(15, 7, 1, NULL, 'stock_in', NULL, 0, 25, NULL, '2026-06-05', 'Rejames Augusto', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(16, 8, 1, NULL, 'stock_in', NULL, 0, 60, NULL, '2026-06-05', 'Paul Steve Fajardo', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(17, 9, 2, NULL, 'stock_in', NULL, 0, 200, NULL, '2026-06-05', 'Erjhon Dapiton', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(18, 10, 2, NULL, 'stock_in', NULL, 0, 30, NULL, '2026-06-05', 'Hyacinth Maris Betinol', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(19, 11, 1, NULL, 'stock_in', NULL, 0, 3, NULL, '2026-04-15', 'Rejames Augusto', NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(20, 11, 1, NULL, 'stock_out', NULL, 0, 3, NULL, '2026-06-25', 'Rejames Augusto', NULL, 'Last unit sold - awaiting restock.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(21, 12, 1, NULL, 'delivery', 'DO-000001', 0, 6, NULL, '2026-08-28', 'Paul Steve Fajardo', 'Aircon Parts Distribution Inc.', 'New LG split type units - Q3 restock order.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(22, 13, 1, NULL, 'delivery', 'DO-000001', 0, 40, NULL, '2026-08-28', 'Paul Steve Fajardo', 'Aircon Parts Distribution Inc.', 'Copper pipe coil, same order as the LG units.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(23, 12, 1, 2, 'transfer', 'TR-000001', 0, 2, NULL, '2026-08-30', 'Hyacinth Maris Betinol', NULL, 'Moved 2 units to Warehouse ahead of a scheduled commercial job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(24, 12, 1, NULL, 'stock_out', NULL, 0, 1, 'LGSN-20250912-0007', '2026-09-01', 'Hyacinth Maris Betinol', NULL, 'Installed at client site - serial logged for warranty tracking.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(25, 12, 2, NULL, 'stock_out', NULL, 0, 1, 'LGSN-20250912-0008', '2026-09-14', 'Erjhon Dapiton', NULL, 'Released for an emergency repair job - unit swap.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(26, 12, 1, NULL, 'stock_out', NULL, 0, 1, 'LGSN-20250912-0009', '2026-09-16', 'Hyacinth Maris Betinol', NULL, 'Installed at client site - follow-up unit.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(27, 7, NULL, NULL, 'item_request', NULL, 0, 5, NULL, '2026-09-17', 'Rejames Augusto', NULL, 'Needed for a scheduled maintenance job.', 'manual', 'pending', NULL, NULL, '2026-09-18 08:21:52'),
-(28, 8, NULL, NULL, 'item_request', NULL, 0, 10, NULL, '2026-09-10', 'Paul Steve Fajardo', NULL, 'Declined - reserved for another scheduled job this week.', 'manual', 'declined', NULL, NULL, '2026-09-18 08:21:52'),
-(29, 10, NULL, NULL, 'item_request', NULL, 0, 4, NULL, '2026-09-05', 'Erjhon Dapiton', NULL, 'For an on-site bracket replacement.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(30, 10, 2, NULL, 'borrow', NULL, 0, 4, NULL, '2026-09-06', 'Hyacinth Maris Betinol', NULL, NULL, 'manual', 'active', 29, NULL, '2026-09-18 08:21:52'),
-(31, 9, NULL, NULL, 'item_request', NULL, 0, 20, NULL, '2026-08-20', 'Rejames Augusto', NULL, 'For a multi-unit installation job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
-(32, 9, 2, NULL, 'borrow', NULL, 0, 20, NULL, '2026-08-21', 'Hyacinth Maris Betinol', NULL, NULL, 'manual', 'completed', 31, NULL, '2026-09-18 08:21:52'),
-(33, 9, 2, NULL, 'return', NULL, 0, 20, NULL, '2026-08-30', 'Hyacinth Maris Betinol', NULL, '2 units returned with cracked fittings - written off, not restocked.', 'manual', 'completed', 32, 2, '2026-09-18 08:21:52'),
-(34, 9, NULL, NULL, 'item_request', NULL, 0, 1, NULL, '2026-09-18', 'Paul Steve Fajardo', NULL, '', 'manual', 'completed', NULL, NULL, '2026-09-18 08:24:49'),
-(35, 9, 2, NULL, 'borrow', NULL, 0, 1, NULL, '2026-09-18', 'Hyacinth Maris Betinol', NULL, '', 'manual', 'active', 34, NULL, '2026-09-18 08:25:08'),
-(36, 11, NULL, NULL, 'item_request', NULL, 0, 2, NULL, '2026-09-18', 'Erjhon Dapiton', NULL, 'test request', 'manual', 'declined', NULL, NULL, '2026-09-18 08:26:03'),
-(37, 12, NULL, NULL, 'item_request', NULL, 0, 2, NULL, '2026-09-18', 'Rejames Augusto', NULL, 'test request', 'manual', 'completed', NULL, NULL, '2026-09-18 08:28:07'),
-(38, 12, 1, NULL, 'borrow', NULL, 0, 2, NULL, '2026-09-18', 'Hyacinth Maris Betinol', NULL, 'test request', 'manual', 'active', 37, NULL, '2026-09-18 08:28:36'),
-(40, 13, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
-(41, 12, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
-(42, 10, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
-(43, 9, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
-(44, 8, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
-(45, 4, NULL, NULL, 'item_request', NULL, 0, 5, NULL, '2026-09-23', 'Erjhon Dapiton', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:57:40'),
-(46, 3, NULL, NULL, 'item_request', 'RQ-000002', 0, 5, NULL, '2026-09-23', 'Rejames Augusto', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:58:20'),
-(47, 2, NULL, NULL, 'item_request', 'RQ-000002', 0, 5, NULL, '2026-09-23', 'Rejames Augusto', NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:58:20'),
-(48, 2, 2, 1, 'transfer', 'TR-000002', 0, 5, NULL, '2026-09-23', 'Hyacinth Maris Betinol', NULL, '', 'manual', 'completed', NULL, NULL, '2026-09-23 12:18:02'),
-(49, 3, 1, NULL, 'delivery', 'DO-000002', 0, 2, NULL, '2026-09-23', 'Hyacinth Maris Betinol', 'Panasonic', '', 'manual', 'completed', NULL, NULL, '2026-09-23 12:29:09');
+INSERT INTO `transactions` (`transaction_id`, `item_id`, `location_id`, `to_location_id`, `transaction_type`, `reference_number`, `manually_added`, `quantity`, `serial_number`, `transaction_date`, `technician_name`, `user_id`, `supplier_name`, `notes`, `source`, `status`, `related_transaction_id`, `damaged_quantity`, `created_at`) VALUES
+(1, 1, 1, NULL, 'stock_in', NULL, 0, 10, NULL, '2026-06-15', 'Hyacinth Maris Betinol', 2, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(2, 1, 2, NULL, 'stock_in', NULL, 0, 3, NULL, '2026-06-15', 'Hyacinth Maris Betinol', 2, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(3, 1, 1, NULL, 'stock_out', NULL, 0, 2, NULL, '2026-07-20', 'Hyacinth Maris Betinol', 2, NULL, 'Installed at client site - Barangay Lahug.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(4, 1, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-07-25', 'Erjhon Dapiton', 3, NULL, 'Released for a warehouse-side installation job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(5, 2, 2, NULL, 'stock_in', NULL, 0, 6, NULL, '2026-06-20', 'Rejames Augusto', 4, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(6, 3, 1, NULL, 'stock_in', NULL, 0, 4, NULL, '2026-07-01', 'Paul Steve Fajardo', 5, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(7, 4, 2, NULL, 'stock_in', NULL, 0, 3, NULL, '2026-05-10', 'Hyacinth Maris Betinol', 2, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(8, 4, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-08-01', 'Hyacinth Maris Betinol', 2, NULL, 'Released for a commercial installation - conference room unit.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(9, 4, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-09-08', 'Hyacinth Maris Betinol', 2, NULL, 'Released for a residential retrofit job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(10, 5, 1, NULL, 'stock_in', NULL, 0, 15, NULL, '2026-06-01', 'Hyacinth Maris Betinol', 2, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(11, 5, 1, NULL, 'stock_out', NULL, 0, 3, NULL, '2026-07-10', 'Hyacinth Maris Betinol', 2, NULL, 'Released for a residential installation - client delivery.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(12, 6, 2, NULL, 'stock_in', NULL, 0, 5, NULL, '2026-06-25', 'Erjhon Dapiton', 3, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(13, 6, 2, NULL, 'stock_out', NULL, 0, 2, NULL, '2026-08-25', 'Erjhon Dapiton', 3, NULL, 'Released for a residential installation - client delivery.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(14, 6, 2, NULL, 'stock_out', NULL, 0, 1, NULL, '2026-09-10', 'Erjhon Dapiton', 3, NULL, 'Released for a follow-up unit swap.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(15, 7, 1, NULL, 'stock_in', NULL, 0, 25, NULL, '2026-06-05', 'Rejames Augusto', 4, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(16, 8, 1, NULL, 'stock_in', NULL, 0, 60, NULL, '2026-06-05', 'Paul Steve Fajardo', 5, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(17, 9, 2, NULL, 'stock_in', NULL, 0, 200, NULL, '2026-06-05', 'Erjhon Dapiton', 3, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(18, 10, 2, NULL, 'stock_in', NULL, 0, 30, NULL, '2026-06-05', 'Hyacinth Maris Betinol', 2, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(19, 11, 1, NULL, 'stock_in', NULL, 0, 3, NULL, '2026-04-15', 'Rejames Augusto', 4, NULL, 'Initial stock (seed data).', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(20, 11, 1, NULL, 'stock_out', NULL, 0, 3, NULL, '2026-06-25', 'Rejames Augusto', 4, NULL, 'Last unit sold - awaiting restock.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(21, 12, 1, NULL, 'delivery', 'DO-000001', 0, 6, NULL, '2026-08-28', 'Paul Steve Fajardo', 5, 'Aircon Parts Distribution Inc.', 'New LG split type units - Q3 restock order.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(22, 13, 1, NULL, 'delivery', 'DO-000001', 0, 40, NULL, '2026-08-28', 'Paul Steve Fajardo', 5, 'Aircon Parts Distribution Inc.', 'Copper pipe coil, same order as the LG units.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(23, 12, 1, 2, 'transfer', 'TR-000001', 0, 2, NULL, '2026-08-30', 'Hyacinth Maris Betinol', 2, NULL, 'Moved 2 units to Warehouse ahead of a scheduled commercial job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(24, 12, 1, NULL, 'stock_out', NULL, 0, 1, 'LGSN-20250912-0007', '2026-09-01', 'Hyacinth Maris Betinol', 2, NULL, 'Installed at client site - serial logged for warranty tracking.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(25, 12, 2, NULL, 'stock_out', NULL, 0, 1, 'LGSN-20250912-0008', '2026-09-14', 'Erjhon Dapiton', 3, NULL, 'Released for an emergency repair job - unit swap.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(26, 12, 1, NULL, 'stock_out', NULL, 0, 1, 'LGSN-20250912-0009', '2026-09-16', 'Hyacinth Maris Betinol', 2, NULL, 'Installed at client site - follow-up unit.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(27, 7, NULL, NULL, 'item_request', NULL, 0, 5, NULL, '2026-09-17', 'Rejames Augusto', 4, NULL, 'Needed for a scheduled maintenance job.', 'manual', 'pending', NULL, NULL, '2026-09-18 08:21:52'),
+(28, 8, NULL, NULL, 'item_request', NULL, 0, 10, NULL, '2026-09-10', 'Paul Steve Fajardo', 5, NULL, 'Declined - reserved for another scheduled job this week.', 'manual', 'declined', NULL, NULL, '2026-09-18 08:21:52'),
+(29, 10, NULL, NULL, 'item_request', NULL, 0, 4, NULL, '2026-09-05', 'Erjhon Dapiton', 3, NULL, 'For an on-site bracket replacement.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(30, 10, 2, NULL, 'borrow', NULL, 0, 4, NULL, '2026-09-06', 'Hyacinth Maris Betinol', 2, NULL, NULL, 'manual', 'active', 29, NULL, '2026-09-18 08:21:52'),
+(31, 9, NULL, NULL, 'item_request', NULL, 0, 20, NULL, '2026-08-20', 'Rejames Augusto', 4, NULL, 'For a multi-unit installation job.', 'manual', 'completed', NULL, NULL, '2026-09-18 08:21:52'),
+(32, 9, 2, NULL, 'borrow', NULL, 0, 20, NULL, '2026-08-21', 'Hyacinth Maris Betinol', 2, NULL, NULL, 'manual', 'completed', 31, NULL, '2026-09-18 08:21:52'),
+(33, 9, 2, NULL, 'return', NULL, 0, 20, NULL, '2026-08-30', 'Hyacinth Maris Betinol', 2, NULL, '2 units returned with cracked fittings - written off, not restocked.', 'manual', 'completed', 32, 2, '2026-09-18 08:21:52'),
+(34, 9, NULL, NULL, 'item_request', NULL, 0, 1, NULL, '2026-09-18', 'Paul Steve Fajardo', 5, NULL, '', 'manual', 'completed', NULL, NULL, '2026-09-18 08:24:49'),
+(35, 9, 2, NULL, 'borrow', NULL, 0, 1, NULL, '2026-09-18', 'Hyacinth Maris Betinol', 2, NULL, '', 'manual', 'active', 34, NULL, '2026-09-18 08:25:08'),
+(36, 11, NULL, NULL, 'item_request', NULL, 0, 2, NULL, '2026-09-18', 'Erjhon Dapiton', 3, NULL, 'test request', 'manual', 'declined', NULL, NULL, '2026-09-18 08:26:03'),
+(37, 12, NULL, NULL, 'item_request', NULL, 0, 2, NULL, '2026-09-18', 'Rejames Augusto', 4, NULL, 'test request', 'manual', 'completed', NULL, NULL, '2026-09-18 08:28:07'),
+(38, 12, 1, NULL, 'borrow', NULL, 0, 2, NULL, '2026-09-18', 'Hyacinth Maris Betinol', 2, NULL, 'test request', 'manual', 'active', 37, NULL, '2026-09-18 08:28:36'),
+(40, 13, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', 5, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
+(41, 12, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', 5, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
+(42, 10, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', 5, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
+(43, 9, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', 5, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
+(44, 8, NULL, NULL, 'item_request', 'RQ-000001', 0, 1, NULL, '2026-09-23', 'Paul Steve Fajardo', 5, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:53:34'),
+(45, 4, NULL, NULL, 'item_request', NULL, 0, 5, NULL, '2026-09-23', 'Erjhon Dapiton', 3, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:57:40'),
+(46, 3, NULL, NULL, 'item_request', 'RQ-000002', 0, 5, NULL, '2026-09-23', 'Rejames Augusto', 4, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:58:20'),
+(47, 2, NULL, NULL, 'item_request', 'RQ-000002', 0, 5, NULL, '2026-09-23', 'Rejames Augusto', 4, NULL, '', 'manual', 'pending', NULL, NULL, '2026-09-23 07:58:20'),
+(48, 2, 2, 1, 'transfer', 'TR-000002', 0, 5, NULL, '2026-09-23', 'Hyacinth Maris Betinol', 2, NULL, '', 'manual', 'completed', NULL, NULL, '2026-09-23 12:18:02'),
+(49, 3, 1, NULL, 'delivery', 'DO-000002', 0, 2, NULL, '2026-09-23', 'Hyacinth Maris Betinol', 2, 'Panasonic', '', 'manual', 'completed', NULL, NULL, '2026-09-23 12:29:09');
 
 -- --------------------------------------------------------
 
@@ -359,7 +361,8 @@ ALTER TABLE `locations`
 -- Indexes for table `reports`
 --
 ALTER TABLE `reports`
-  ADD PRIMARY KEY (`report_id`);
+  ADD PRIMARY KEY (`report_id`),
+  ADD KEY `fk_reports_user` (`user_id`);
 
 --
 -- Indexes for table `transactions`
@@ -370,7 +373,8 @@ ALTER TABLE `transactions`
   ADD KEY `fk_transactions_location` (`location_id`),
   ADD KEY `fk_transactions_to_location` (`to_location_id`),
   ADD KEY `idx_transactions_reference_number` (`reference_number`),
-  ADD KEY `idx_transactions_related_transaction_id` (`related_transaction_id`);
+  ADD KEY `idx_transactions_related_transaction_id` (`related_transaction_id`),
+  ADD KEY `fk_transactions_user` (`user_id`);
 
 --
 -- Indexes for table `users`
@@ -457,7 +461,14 @@ ALTER TABLE `transactions`
   ADD CONSTRAINT `fk_transactions_item_id` FOREIGN KEY (`item_id`) REFERENCES `inventory_items` (`item_id`) ON DELETE SET NULL ON UPDATE CASCADE,
   ADD CONSTRAINT `fk_transactions_location` FOREIGN KEY (`location_id`) REFERENCES `locations` (`location_id`),
   ADD CONSTRAINT `fk_transactions_related_transaction` FOREIGN KEY (`related_transaction_id`) REFERENCES `transactions` (`transaction_id`) ON DELETE SET NULL,
-  ADD CONSTRAINT `fk_transactions_to_location` FOREIGN KEY (`to_location_id`) REFERENCES `locations` (`location_id`);
+  ADD CONSTRAINT `fk_transactions_to_location` FOREIGN KEY (`to_location_id`) REFERENCES `locations` (`location_id`),
+  ADD CONSTRAINT `fk_transactions_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `reports`
+--
+ALTER TABLE `reports`
+  ADD CONSTRAINT `fk_reports_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

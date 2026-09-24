@@ -106,6 +106,7 @@ class DeliveryController
         $this->transaction->serial_number = null;
         $this->transaction->transaction_date = $date;
         $this->transaction->technician_name = $receivedBy;
+        $this->transaction->user_id = current_user()['user_id'] ?? null;
         $this->transaction->supplier_name = $supplierName !== '' ? $supplierName : null;
         $this->transaction->notes = $notes;
         $this->transaction->status = 'completed';

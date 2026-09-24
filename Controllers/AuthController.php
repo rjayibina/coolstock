@@ -19,7 +19,8 @@ class AuthController
     }
 
     /** Show the login form (or bounce to the dashboard if already
-     *  signed in - there's nothing else on this page for them). */
+     *  signed in - there's nothing else on this page for them).
+     *  $error: null | 'invalid' | 'inactive' | 'forbidden' */
     public function index(): void
     {
         if (is_logged_in()) {
@@ -44,8 +45,16 @@ class AuthController
 
         $record = $email !== '' ? $this->user->readByEmail($email) : null;
 
-        if (!$record || !(int) $record['is_active'] || !password_verify($password, $record['password_hash'])) {
+        // Credentials are verified before account status is checked, and
+        // wrong credentials always report the same generic error regardless
+        // of whether the matching account is active or inactive.
+        if (!$record || !password_verify($password, $record['password_hash'])) {
             header("Location: index.php?module=auth&action=index&error=invalid");
+            exit;
+        }
+
+        if (!(int) $record['is_active']) {
+            header("Location: index.php?module=auth&action=index&error=inactive");
             exit;
         }
 

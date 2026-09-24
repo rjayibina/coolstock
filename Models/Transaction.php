@@ -71,11 +71,19 @@ class Transaction
     // not supplied). Separate from created_at, which is just the audit
     // timestamp of when the row was logged. See migration_transaction_date.sql.
     public ?string $transaction_date = null;
-    // TODO: once the User Access and Roles Module exists, replace this free-text
-    // field with a technician_id FK into a users/technicians table. Doubles as
-    // "Received By" (Stock In/Delivery) / "Released By" (Stock Out) / "Moved By"
-    // (Transfer) in the UI, same column.
+    // Free-text "Received By" (Stock In/Delivery) / "Released By" (Stock
+    // Out) / "Moved By" (Transfer) / "Requested By" (Item Request) label
+    // shown in the UI. Kept as a point-in-time snapshot even now that
+    // user_id (below) exists, so the row still reads correctly if the
+    // account is later renamed or deactivated.
     public ?string $technician_name = null;
+    // FK to users.user_id - the account actually signed in when this row
+    // was logged. May legitimately differ from technician_name (e.g. a
+    // warehouse staff member logging a delivery received by someone else
+    // physically present). Null for rows written before this column
+    // existed (see migration_add_user_id_to_transactions_reports.sql) or
+    // if the request has no signed-in user for some reason.
+    public ?int $user_id = null;
     // Free-text supplier name, Delivery only. Null for every other type.
     public ?string $supplier_name = null;
     public ?string $notes = null;
@@ -173,9 +181,9 @@ class Transaction
         $this->transaction_date = $this->transaction_date ?: date('Y-m-d');
 
         $query = "INSERT INTO {$this->table}
-                    (item_id, location_id, to_location_id, transaction_type, reference_number, manually_added, quantity, serial_number, transaction_date, technician_name, supplier_name, notes, source, status, related_transaction_id, damaged_quantity)
+                    (item_id, location_id, to_location_id, transaction_type, reference_number, manually_added, quantity, serial_number, transaction_date, technician_name, user_id, supplier_name, notes, source, status, related_transaction_id, damaged_quantity)
                   VALUES
-                    (:item_id, :location_id, :to_location_id, :transaction_type, :reference_number, :manually_added, :quantity, :serial_number, :transaction_date, :technician_name, :supplier_name, :notes, :source, :status, :related_transaction_id, :damaged_quantity)";
+                    (:item_id, :location_id, :to_location_id, :transaction_type, :reference_number, :manually_added, :quantity, :serial_number, :transaction_date, :technician_name, :user_id, :supplier_name, :notes, :source, :status, :related_transaction_id, :damaged_quantity)";
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':item_id', $this->item_id, PDO::PARAM_INT);
@@ -204,6 +212,11 @@ class Transaction
         }
         $stmt->bindParam(':transaction_date', $this->transaction_date);
         $stmt->bindParam(':technician_name', $this->technician_name);
+        if ($this->user_id === null) {
+            $stmt->bindValue(':user_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':user_id', $this->user_id, PDO::PARAM_INT);
+        }
         $stmt->bindParam(':supplier_name', $this->supplier_name);
         $stmt->bindParam(':notes', $this->notes);
         $stmt->bindParam(':source', $this->source);

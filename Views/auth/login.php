@@ -1,7 +1,7 @@
 <?php
 /**
  * Views/auth/login.php
- * Expects: $error (?string) - 'invalid' or 'forbidden'
+ * Expects: $error (?string) - 'invalid', 'inactive', or 'forbidden'
  * Standalone page - deliberately doesn't pull in partials/header.php or
  * sidebar.php since there's no signed-in user yet to show a nav for.
  */
@@ -83,7 +83,9 @@
             <div class="login-subtitle">Mister Aircon inventory system</div>
 
             <?php if ($error === 'invalid'): ?>
-                <div class="alert alert-warning">Incorrect email or password, or the account is inactive.</div>
+                <div class="alert alert-warning">Incorrect email or password.</div>
+            <?php elseif ($error === 'inactive'): ?>
+                <div class="alert alert-warning">Account is inactive.</div>
             <?php elseif ($error === 'forbidden'): ?>
                 <div class="alert alert-warning">Please sign in to continue.</div>
             <?php endif; ?>

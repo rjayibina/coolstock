@@ -118,6 +118,7 @@ class TransactionController
         $this->transaction->transaction_type = $type;
         $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
         $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
+        $this->transaction->user_id = current_user()['user_id'] ?? null;
         $this->transaction->notes = trim($_POST['notes'] ?? '');
         $this->transaction->status = 'completed';
 
@@ -255,6 +256,7 @@ class TransactionController
                 $this->transaction->reference_number = $referenceNumber;
                 $this->transaction->transaction_date = $date;
                 $this->transaction->technician_name = $releasedBy;
+                $this->transaction->user_id = current_user()['user_id'] ?? null;
                 $this->transaction->supplier_name = null;
                 $this->transaction->notes = $notes;
                 $this->transaction->status = 'completed';
