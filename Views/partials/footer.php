@@ -248,72 +248,124 @@
         return false;
     }
 
-    document.querySelectorAll('form').forEach(function (form) {
-        form.setAttribute('novalidate', 'novalidate');
+    // Extracted so it can be re-run (from ajaxPaginate below) against just
+    // the fragment that was swapped in, not the whole document again.
+    function applyTableCaptions(root) {
+        root.querySelectorAll('.table-card > table').forEach(function (table) {
+            var headers = Array.prototype.map.call(
+                table.querySelectorAll('thead th'),
+                function (th) { return th.textContent.trim(); }
+            );
+            if (!headers.length) { return; }
 
-        // Real-time feedback: validate as the visitor leaves a field, and
-        // clear the error the moment a correction makes it valid again
-        // rather than waiting for the next blur.
-        form.addEventListener('blur', function (e) {
-            if (isValidatable(e.target)) { validateField(e.target); }
-        }, true);
-        form.addEventListener('input', function (e) {
-            if (isValidatable(e.target) && e.target.classList.contains('is-invalid')) {
-                validateField(e.target);
-            }
-        });
-        form.addEventListener('change', function (e) {
-            if (isValidatable(e.target) && e.target.classList.contains('is-invalid')) {
-                validateField(e.target);
-            }
-        });
+            table.querySelectorAll('tbody tr').forEach(function (row) {
+                var cells = row.children;
+                // The empty-state row spans every column - it has no single
+                // header to name, and reads fine as-is.
+                if (cells.length === 1 && cells[0].hasAttribute('colspan')) { return; }
 
-        form.addEventListener('submit', function (e) {
-            var fields = Array.prototype.slice.call(form.querySelectorAll('input, select, textarea'));
-            var firstInvalid = null;
-            fields.forEach(function (field) {
-                if (!validateField(field) && !firstInvalid) { firstInvalid = field; }
+                for (var i = 0; i < cells.length; i++) {
+                    var cell = cells[i];
+                    if (cell.hasAttribute('data-label')) { continue; }
+
+                    var label = headers[i] || '';
+                    if (!label && cell.querySelector('input[type="checkbox"]')) {
+                        label = 'Select';
+                    }
+                    if (label) { cell.setAttribute('data-label', label); }
+                }
+            });
+        });
+    }
+    applyTableCaptions(document);
+
+    // Same reasoning as applyTableCaptions() - wires up the same
+    // novalidate/inline-error behaviour on any <form> inside a root, so a
+    // form swapped in later (an AJAX-paginated list's bulk form) behaves
+    // the same as one that was on the page at load time.
+    function wireFormValidation(root) {
+        root.querySelectorAll('form').forEach(function (form) {
+            if (form.dataset.validationWired === '1') { return; }
+            form.dataset.validationWired = '1';
+            form.setAttribute('novalidate', 'novalidate');
+
+            form.addEventListener('blur', function (e) {
+                if (isValidatable(e.target)) { validateField(e.target); }
+            }, true);
+            form.addEventListener('input', function (e) {
+                if (isValidatable(e.target) && e.target.classList.contains('is-invalid')) {
+                    validateField(e.target);
+                }
+            });
+            form.addEventListener('change', function (e) {
+                if (isValidatable(e.target) && e.target.classList.contains('is-invalid')) {
+                    validateField(e.target);
+                }
             });
 
-            if (firstInvalid) {
-                e.preventDefault();
-                firstInvalid.scrollIntoView({ block: 'center' });
-                firstInvalid.focus();
-                return;
-            }
+            form.addEventListener('submit', function (e) {
+                var fields = Array.prototype.slice.call(form.querySelectorAll('input, select, textarea'));
+                var firstInvalid = null;
+                fields.forEach(function (field) {
+                    if (!validateField(field) && !firstInvalid) { firstInvalid = field; }
+                });
 
-            var submitBtn = e.submitter || form.querySelector('button[type="submit"]');
-            if (submitBtn && submitBtn.tagName === 'BUTTON') {
-                submitBtn.classList.add('is-loading');
-                submitBtn.disabled = true;
-            }
-        });
-    });
-
-    document.querySelectorAll('.table-card > table').forEach(function (table) {
-        var headers = Array.prototype.map.call(
-            table.querySelectorAll('thead th'),
-            function (th) { return th.textContent.trim(); }
-        );
-        if (!headers.length) { return; }
-
-        table.querySelectorAll('tbody tr').forEach(function (row) {
-            var cells = row.children;
-            // The empty-state row spans every column - it has no single
-            // header to name, and reads fine as-is.
-            if (cells.length === 1 && cells[0].hasAttribute('colspan')) { return; }
-
-            for (var i = 0; i < cells.length; i++) {
-                var cell = cells[i];
-                if (cell.hasAttribute('data-label')) { continue; }
-
-                var label = headers[i] || '';
-                if (!label && cell.querySelector('input[type="checkbox"]')) {
-                    label = 'Select';
+                if (firstInvalid) {
+                    e.preventDefault();
+                    firstInvalid.scrollIntoView({ block: 'center' });
+                    firstInvalid.focus();
+                    return;
                 }
-                if (label) { cell.setAttribute('data-label', label); }
-            }
+
+                var submitBtn = e.submitter || form.querySelector('button[type="submit"]');
+                if (submitBtn && submitBtn.tagName === 'BUTTON') {
+                    submitBtn.classList.add('is-loading');
+                    submitBtn.disabled = true;
+                }
+            });
         });
+    }
+    wireFormValidation(document);
+
+    /* ---------- AJAX pagination ----------
+     * A listing view (Products, Product Movement, Item Requests, Users)
+     * wraps its table + pagination bar in a container marked
+     * data-ajax-list, with data-ajax-var naming the page's client-side
+     * id-keyed lookup object (e.g. productsData) if it has one. The
+     * matching controller's index() detects the X-Requested-With header
+     * (is_ajax_request(), Helpers/auth.php) and returns
+     * {html, data} JSON instead of a full page - html replaces the
+     * container's contents, and data (if any) is merged into that lookup
+     * object so row click handlers keep working for the newly-swapped rows. */
+    function ajaxPaginate(container, url) {
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (res) { return res.json(); })
+            .then(function (json) {
+                container.innerHTML = json.html;
+                var varName = container.dataset.ajaxVar;
+                if (varName && json.data) {
+                    window[varName] = Object.assign(window[varName] || {}, json.data);
+                }
+                applyTableCaptions(container);
+                wireFormValidation(container);
+                container.scrollIntoView({ block: 'nearest' });
+            })
+            .catch(function () {
+                // Best-effort progressive enhancement - if the fetch fails
+                // for any reason, fall back to a normal full-page navigation.
+                window.location.href = url;
+            });
+    }
+
+    document.addEventListener('click', function (e) {
+        var link = e.target.closest('a.page-btn');
+        if (!link || link.classList.contains('disabled') || link.classList.contains('active')) { return; }
+
+        var container = link.closest('[data-ajax-list]');
+        if (!container) { return; } // not an AJAX-enabled list - let it navigate normally
+
+        e.preventDefault();
+        ajaxPaginate(container, link.getAttribute('href'));
     });
 }());
 </script>

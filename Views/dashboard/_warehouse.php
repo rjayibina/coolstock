@@ -223,7 +223,7 @@ foreach ($predictedStockouts as $__row) {
                     <tr>
                         <th>Product</th>
                         <th>Type</th>
-                        <th>Technician</th>
+                        <th>User</th>
                         <th>Quantity</th>
                         <th>Date</th>
                     </tr>

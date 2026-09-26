@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../Models/Transaction.php';
 require_once __DIR__ . '/../Models/InventoryItem.php';
 require_once __DIR__ . '/../Models/ItemStock.php';
+require_once __DIR__ . '/../Models/Location.php';
 
 /**
  * TransactionController.php
@@ -18,6 +19,7 @@ class TransactionController
     private Transaction $transaction;
     private InventoryItem $item;
     private ItemStock $itemStock;
+    private Location $location;
 
     private const STOCK_TYPES = ['stock_in', 'stock_out'];
 
@@ -26,6 +28,7 @@ class TransactionController
         $this->transaction = new Transaction();
         $this->item = new InventoryItem();
         $this->itemStock = new ItemStock();
+        $this->location = new Location();
     }
 
     private const PER_PAGE = 10;
@@ -35,6 +38,7 @@ class TransactionController
     {
         $filterItemId = !empty($_GET['item_id']) ? (int) $_GET['item_id'] : null;
         $filterType = $_GET['type'] ?? null;
+        $filterLocationId = !empty($_GET['location_id']) ? (int) $_GET['location_id'] : null;
         $dateFrom = $_GET['date_from'] ?? null;
         $dateTo = $_GET['date_to'] ?? null;
         $sort = $_GET['sort'] ?? 'date_desc';
@@ -45,12 +49,12 @@ class TransactionController
 
         try {
             $page = max(1, (int) ($_GET['page'] ?? 1));
-            $totalCount = $this->transaction->countGroups($filterItemId, $filterType, null, $dateFrom, $dateTo);
+            $totalCount = $this->transaction->countGroups($filterItemId, $filterType, null, $dateFrom, $dateTo, $filterLocationId);
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
             $page = min($page, $totalPages);
             $offset = ($page - 1) * self::PER_PAGE;
 
-            $transactions = $this->transaction->readGrouped($filterItemId, $filterType, null, $dateFrom, $dateTo, $sort, self::PER_PAGE, $offset);
+            $transactions = $this->transaction->readGrouped($filterItemId, $filterType, null, $dateFrom, $dateTo, $sort, self::PER_PAGE, $offset, $filterLocationId);
 
             $pagination = [
                 'page' => $page,
@@ -62,7 +66,25 @@ class TransactionController
             $error = "Could not load transactions: " . $e->getMessage()
                 . " — make sure the 'transactions' table exists (run database/coolstock_full_setup.sql).";
         }
+
+        // AJAX pagination: the fragment only needs $transactions/$pagination
+        // /$error (all set above), not the filter panel's $items dropdown.
+        // See Views/transactions/index.php's $ajaxFragment guard.
+        if (is_ajax_request()) {
+            $ajaxFragment = true;
+            ob_start();
+            require __DIR__ . '/../Views/transactions/index.php';
+            $html = ob_get_clean();
+            header('Content-Type: application/json');
+            echo json_encode([
+                'html' => $html,
+                'data' => array_column($transactions, null, 'transaction_id'),
+            ]);
+            return;
+        }
+
         $items = $this->item->readAll();
+        $locations = $this->location->readAll();
         require __DIR__ . '/../Views/transactions/index.php';
     }
 
@@ -116,7 +138,9 @@ class TransactionController
         $this->transaction->item_id = $itemId;
         $this->transaction->location_id = $locationId;
         $this->transaction->transaction_type = $type;
-        $this->transaction->transaction_date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+        // Stock Date is a read-only field in the form (always today) -
+        // always today here too, regardless of what's POSTed.
+        $this->transaction->transaction_date = date('Y-m-d');
         $this->transaction->technician_name = trim($_POST['technician_name'] ?? '') ?: null;
         $this->transaction->user_id = current_user()['user_id'] ?? null;
         $this->transaction->notes = trim($_POST['notes'] ?? '');
@@ -228,7 +252,9 @@ class TransactionController
     {
         $locationId = (int) ($_POST['location_id'] ?? 0);
         $releasedBy = trim($_POST['technician_name'] ?? '');
-        $date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+        // Stock Date is a read-only field in the form (always today) -
+        // always today here too, regardless of what's POSTed.
+        $date = date('Y-m-d');
         $notes = trim($_POST['notes'] ?? '');
         $quantities = $_POST['quantities'] ?? [];
         $serialsByItem = $_POST['serials'] ?? [];

@@ -17,6 +17,23 @@ SET time_zone = "+00:00";
 /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
 /*!40101 SET NAMES utf8mb4 */;
 
+-- This dump is the full baseline schema + seed data for a fresh install -
+-- run this file alone against an empty database, nothing else needed.
+-- It already includes the effect of what were previously 4 standalone
+-- migration_*.sql files, now folded in and removed:
+--   - migration_add_na_brand.sql            -> `brands` row 7 ('N/A')
+--   - migration_add_user_id_to_transactions_reports.sql
+--       -> `transactions`.user_id / `reports`.user_id (+ FKs, below)
+--   - migration_add_item_type_to_categories.sql
+--       -> `item_categories`.item_type_id (+ FK, below)
+--   - migration_unlock_categories_item_type.sql
+--       -> only `item_categories` row 5 ("Consumables & Spare Parts")
+--          ships locked to Consumable; every other category is NULL
+--          (unlocked) by default, same as a brand-new category gets.
+-- An already-running installation that applied those 4 files by hand
+-- does not need to run anything from this dump - it already has the
+-- same schema and (for the lock) the same corrected data.
+
 --
 -- Database: `mister_aircon`
 --
@@ -42,7 +59,8 @@ INSERT INTO `brands` (`brand_id`, `brand_name`) VALUES
 (3, 'Panasonic'),
 (4, 'LG'),
 (5, 'Samsung'),
-(6, 'Mitsubishi Electric');
+(6, 'Mitsubishi Electric'),
+(7, 'N/A');
 
 -- --------------------------------------------------------
 
@@ -93,19 +111,24 @@ INSERT INTO `inventory_items` (`item_id`, `category_id`, `brand_id`, `item_type_
 
 CREATE TABLE `item_categories` (
   `category_id` int(11) NOT NULL,
-  `category_name` varchar(100) NOT NULL
+  `category_name` varchar(100) NOT NULL,
+  `item_type_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `item_categories`
 --
+-- item_type_id: NULL means the category doesn't auto-lock the Item Type
+-- field (Add/Edit Product leaves it open). Only "Consumables & Spare
+-- Parts" ships locked to Consumable by default - an admin can lock/unlock
+-- any other category from the Categories page's "Locks Item Type" field.
 
-INSERT INTO `item_categories` (`category_id`, `category_name`) VALUES
-(1, 'Split Type AC'),
-(2, 'Window Type AC'),
-(3, 'Floor Mounted AC'),
-(4, 'Cassette Type AC'),
-(5, 'Consumables & Spare Parts');
+INSERT INTO `item_categories` (`category_id`, `category_name`, `item_type_id`) VALUES
+(1, 'Split Type AC', NULL),
+(2, 'Window Type AC', NULL),
+(3, 'Floor Mounted AC', NULL),
+(4, 'Cassette Type AC', NULL),
+(5, 'Consumables & Spare Parts', 2);
 
 -- --------------------------------------------------------
 
@@ -336,7 +359,8 @@ ALTER TABLE `inventory_items`
 -- Indexes for table `item_categories`
 --
 ALTER TABLE `item_categories`
-  ADD PRIMARY KEY (`category_id`);
+  ADD PRIMARY KEY (`category_id`),
+  ADD KEY `fk_item_categories_item_type` (`item_type_id`);
 
 --
 -- Indexes for table `item_stock`
@@ -446,6 +470,12 @@ ALTER TABLE `inventory_items`
   ADD CONSTRAINT `fk_inventory_items_brand` FOREIGN KEY (`brand_id`) REFERENCES `brands` (`brand_id`),
   ADD CONSTRAINT `fk_inventory_items_item_type` FOREIGN KEY (`item_type_id`) REFERENCES `item_types` (`item_type_id`),
   ADD CONSTRAINT `inventory_items_ibfk_1` FOREIGN KEY (`category_id`) REFERENCES `item_categories` (`category_id`) ON UPDATE CASCADE;
+
+--
+-- Constraints for table `item_categories`
+--
+ALTER TABLE `item_categories`
+  ADD CONSTRAINT `fk_item_categories_item_type` FOREIGN KEY (`item_type_id`) REFERENCES `item_types` (`item_type_id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `item_stock`

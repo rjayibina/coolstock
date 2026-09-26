@@ -14,12 +14,19 @@ $activeSubNav = 'brands';
 $count = $pagination['totalCount'];
 require __DIR__ . '/../partials/header.php';
 
-// Builds a pagination link that keeps the current sort
+// Builds a pagination link that keeps the current sort.
+//
+// Reads $_GET directly rather than via `global` on $currentSort above -
+// this file is require()'d from inside BrandController::index(), so its
+// "top-level" code runs in THAT METHOD's local scope, not PHP's real
+// global scope, and `global $x` only ever binds to $GLOBALS['x']. That
+// silently emitted an empty sort on every pagination link. $_GET is a
+// true superglobal, reachable from any scope, so it doesn't have this
+// problem.
 function brandPageUrl(int $page): string
 {
-    global $currentSort;
     return "index.php?module=brands&action=index"
-        . "&sort=" . urlencode($currentSort)
+        . "&sort=" . urlencode($_GET['sort'] ?? 'newest')
         . "&page=" . $page;
 }
 ?>
@@ -140,7 +147,7 @@ function brandPageUrl(int $page): string
                 </div>
                 <div class="modal-body">
                     <form method="POST" action="index.php?module=brands&action=create">
-                        <label for="ab_brand_name">Brand Name</label>
+                        <label for="ab_brand_name">Brand Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="ab_brand_name" name="brand_name" placeholder="e.g. Carrier" maxlength="100" required>
 
                         <div class="form-actions">
@@ -162,7 +169,7 @@ function brandPageUrl(int $page): string
                     <form method="POST" id="editBrandForm" action="index.php?module=brands&action=edit">
                         <input type="hidden" name="brand_id" id="eb_brand_id" value="">
 
-                        <label for="eb_brand_name">Brand Name</label>
+                        <label for="eb_brand_name">Brand Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="eb_brand_name" name="brand_name" maxlength="100" required>
 
                         <div class="form-actions">

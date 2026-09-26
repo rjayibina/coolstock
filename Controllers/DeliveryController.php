@@ -53,12 +53,16 @@ class DeliveryController
             $receivedBy = trim($_POST['technician_name'] ?? '');
             $supplierName = trim($_POST['supplier_name'] ?? '');
             $locationId = (int) ($_POST['location_id'] ?? 0);
-            $date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+            // Delivery Date is a read-only field in the form (always
+            // today) - always today here too, regardless of what's
+            // POSTed, rather than trusting a value the UI never lets
+            // anyone actually change.
+            $date = date('Y-m-d');
             $notes = trim($_POST['notes'] ?? '');
             $quantities = $_POST['quantities'] ?? [];
             $manualProducts = $this->cleanManualProducts($_POST['manual_products'] ?? []);
 
-            $error = $this->validate($receivedBy, $supplierName, $locationId, $quantities, $manualProducts);
+            $error = $this->validate($receivedBy, $supplierName, $locationId, $quantities, $manualProducts, $date);
 
             if (!$error) {
                 $logged = 0;
@@ -119,10 +123,11 @@ class DeliveryController
     }
 
     /** Creates a new catalog product from one manual_products[] entry.
-     *  Only Model is required - Category/Item Type are optional, and every
-     *  AC-spec field (energy rating, cooling capacity, etc.) is left null,
-     *  same as any other optional-spec product added through Products ->
-     *  Add Product. Returns the new item_id, or null if the insert failed. */
+     *  Model, Category and Item Type are all required (see validate()) -
+     *  every AC-spec field (energy rating, cooling capacity, etc.) is
+     *  left null though, same as any Consumable/non-Asset product added
+     *  through Products -> Add Product. Returns the new item_id, or null
+     *  if the insert failed. */
     private function createManualProduct(array $mp): ?int
     {
         $this->item->item_id = null;
@@ -144,17 +149,22 @@ class DeliveryController
         return $this->item->lastInsertId();
     }
 
-    /** Trims/validates the raw manual_products[] POST array down to only
-     *  the rows that have both a Model name and a positive quantity -
-     *  a row left blank (the user clicked "+ Add Product Manually" but
-     *  didn't fill it in) is silently dropped rather than erroring. */
+    /** Trims the raw manual_products[] POST array down to only the rows
+     *  that have SOMETHING in them - a row left completely blank (the user
+     *  clicked "+ Add Product Manually" but never touched it) is dropped
+     *  silently, since that's just an unused placeholder row. A row with
+     *  only ONE of Model/Quantity filled in is a genuine mistake, so it's
+     *  kept here on purpose rather than being silently discarded like a
+     *  blank row - validate() below catches it and returns a specific
+     *  error instead of the caller falling through to a generic "enter a
+     *  quantity" message that doesn't mention the missing Model. */
     private function cleanManualProducts(array $raw): array
     {
         $cleaned = [];
         foreach ($raw as $mp) {
             $model = trim($mp['model'] ?? '');
             $qty = (int) ($mp['quantity'] ?? 0);
-            if ($model === '' || $qty <= 0) {
+            if ($model === '' && $qty <= 0) {
                 continue;
             }
             $cleaned[] = [
@@ -167,7 +177,7 @@ class DeliveryController
         return $cleaned;
     }
 
-    private function validate(string $receivedBy, string $supplierName, int $locationId, array $quantities, array $manualProducts): ?string
+    private function validate(string $receivedBy, string $supplierName, int $locationId, array $quantities, array $manualProducts, string $date = ''): ?string
     {
         if ($receivedBy === '') {
             return "Received By is required.";
@@ -178,6 +188,29 @@ class DeliveryController
         if ($locationId <= 0) {
             return "Please select a location.";
         }
+        if ($date !== '' && $date > date('Y-m-d')) {
+            return "Delivery Date cannot be in the future.";
+        }
+
+        // A manually-added row that made it past cleanManualProducts() has
+        // at least one of Model/Quantity filled in - if it's not both, say
+        // exactly which one is missing rather than letting it silently
+        // fail the "at least one product" check below with no explanation.
+        foreach ($manualProducts as $mp) {
+            if ($mp['model'] === '') {
+                return "Enter a Model name for each manually-added product (or remove the empty row).";
+            }
+            if (empty($mp['category_id'])) {
+                return "Select a Category for \"{$mp['model']}\".";
+            }
+            if (empty($mp['item_type_id'])) {
+                return "Select an Item Type for \"{$mp['model']}\".";
+            }
+            if ($mp['quantity'] <= 0) {
+                return "Enter a quantity for \"{$mp['model']}\".";
+            }
+        }
+
         $hasLine = !empty($manualProducts);
         if (!$hasLine) {
             foreach ($quantities as $qty) {

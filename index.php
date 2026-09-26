@@ -113,7 +113,7 @@ switch ($module) {
 
 // Public, safely-callable actions. Anything else (or a method that doesn't
 // exist on the resolved controller) falls back to index().
-$allowedActions = ['index', 'create', 'edit', 'delete', 'import', 'export', 'bulkDelete', 'bulkUpdateCategory', 'bulkStockOut', 'batch', 'login', 'logout', 'reactivate', 'approve', 'decline', 'returnItem', 'generate'];
+$allowedActions = ['index', 'create', 'edit', 'delete', 'import', 'export', 'bulkDelete', 'bulkUpdateCategory', 'bulkStockOut', 'batch', 'login', 'logout', 'reactivate', 'approve', 'decline', 'returnItem', 'generate', 'modal'];
 
 try {
     if (in_array($action, $allowedActions, true) && method_exists($controller, $action)) {

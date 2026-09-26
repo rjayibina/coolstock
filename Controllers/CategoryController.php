@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../Models/Category.php';
 require_once __DIR__ . '/../Models/InventoryItem.php';
+require_once __DIR__ . '/../Models/ItemType.php';
 
 /**
  * CategoryController.php
@@ -12,10 +13,28 @@ class CategoryController
     private const PER_PAGE = 10;
 
     private Category $category;
+    private ItemType $itemType;
 
     public function __construct()
     {
         $this->category = new Category();
+        $this->itemType = new ItemType();
+    }
+
+    /** Validates the submitted "Locks Item Type" select - blank/absent is
+     *  valid (null - no auto-lock), otherwise it must be a real
+     *  item_type_id. Returns [value, error]. */
+    private function parseItemTypeId(): array
+    {
+        $raw = trim($_POST['item_type_id'] ?? '');
+        if ($raw === '') {
+            return [null, null];
+        }
+        $id = (int) $raw;
+        if ($id <= 0 || !$this->itemType->readOne($id)) {
+            return [null, "Please choose a valid Item Type to lock to, or leave it blank."];
+        }
+        return [$id, null];
     }
 
     /** List all categories, each with its product count, sorted and paginated */
@@ -30,6 +49,7 @@ class CategoryController
         $offset = ($page - 1) * self::PER_PAGE;
 
         $categories = $this->category->readAllWithCounts($sort, self::PER_PAGE, $offset);
+        $itemTypes = $this->itemType->readAll();
 
         $pagination = [
             'page' => $page,
@@ -45,16 +65,21 @@ class CategoryController
     public function create(): void
     {
         $error = null;
+        $itemTypes = $this->itemType->readAll();
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim($_POST['category_name'] ?? '');
+            [$itemTypeId, $itemTypeError] = $this->parseItemTypeId();
 
             if ($name === '') {
                 $error = "Category name is required.";
             } elseif (strlen($name) > 100) {
                 $error = "Category name must be at most 100 characters.";
+            } elseif ($itemTypeError) {
+                $error = $itemTypeError;
             } else {
                 $this->category->category_name = $name;
+                $this->category->item_type_id = $itemTypeId;
 
                 if ($this->category->create()) {
                     header("Location: index.php?module=categories&action=index&status=created");
@@ -72,6 +97,7 @@ class CategoryController
     {
         $id = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($_POST['category_id'] ?? 0);
         $error = null;
+        $itemTypes = $this->itemType->readAll();
 
         if ($id <= 0) {
             header("Location: index.php?module=categories&action=index");
@@ -80,16 +106,21 @@ class CategoryController
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim($_POST['category_name'] ?? '');
+            [$itemTypeId, $itemTypeError] = $this->parseItemTypeId();
 
             if ($name === '') {
                 $error = "Category name is required.";
-                $data = ['category_id' => $id, 'category_name' => $name];
+                $data = ['category_id' => $id, 'category_name' => $name, 'item_type_id' => $itemTypeId];
             } elseif (strlen($name) > 100) {
                 $error = "Category name must be at most 100 characters.";
-                $data = ['category_id' => $id, 'category_name' => $name];
+                $data = ['category_id' => $id, 'category_name' => $name, 'item_type_id' => $itemTypeId];
+            } elseif ($itemTypeError) {
+                $error = $itemTypeError;
+                $data = ['category_id' => $id, 'category_name' => $name, 'item_type_id' => null];
             } else {
                 $this->category->category_id = $id;
                 $this->category->category_name = $name;
+                $this->category->item_type_id = $itemTypeId;
 
                 if ($this->category->update()) {
                     header("Location: index.php?module=categories&action=index&status=updated");

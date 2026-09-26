@@ -3,8 +3,9 @@
  * Views/delivery/index.php
  * Expects: $error (string|null), $items (array of inventory_items),
  *          $locations (array of locations), $categories (array),
- *          $itemTypes (array) - the latter two only used by the
- *          "Add Product Manually" section's optional dropdowns.
+ *          $itemTypes (array) - the latter two used by the "Add Product
+ *          Manually" section's Category/Item Type dropdowns (required -
+ *          see DeliveryController::validate()).
  */
 $pageTitle = 'Delivery';
 $activeSection = 'inventory';
@@ -38,19 +39,20 @@ $oldManualProducts = $old['manual_products'] ?? [];
         <?php else: ?>
         <form method="POST" action="index.php?module=delivery&action=index" id="deliveryForm">
             <div class="form-card">
-                <label for="supplier_name">Supplier</label>
+                <label for="supplier_name">Supplier <span class="required-asterisk">*</span></label>
                 <input type="text" id="supplier_name" name="supplier_name" placeholder="e.g. Carrier Philippines" maxlength="150"
                        value="<?= htmlspecialchars($old['supplier_name'] ?? '') ?>" required>
 
-                <label for="technician_name">Received By</label>
+                <label for="technician_name">Received By <span class="required-asterisk">*</span></label>
                 <input type="text" id="technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100"
                        value="<?= htmlspecialchars($old['technician_name'] ?? '') ?>" required>
 
-                <label for="transaction_date">Delivery Date</label>
-                <input type="date" id="transaction_date" name="transaction_date"
-                       value="<?= htmlspecialchars($old['transaction_date'] ?? date('Y-m-d')) ?>" required>
+                <label for="transaction_date">Delivery Date <span class="required-asterisk">*</span></label>
+                <input type="date" id="transaction_date" name="transaction_date" readonly
+                       value="<?= htmlspecialchars($old['transaction_date'] ?? date('Y-m-d')) ?>"
+                       max="<?= date('Y-m-d') ?>" required>
 
-                <label for="location_id">Received At</label>
+                <label for="location_id">Received At <span class="required-asterisk">*</span></label>
                 <select id="location_id" name="location_id" required>
                     <option value="" disabled <?= empty($old['location_id']) ? 'selected' : '' ?>>Select a location</option>
                     <?php foreach ($locations as $loc): ?>
@@ -207,25 +209,25 @@ $oldManualProducts = $old['manual_products'] ?? [];
             row.style.cssText = 'display:flex;gap:10px;align-items:flex-end;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;';
             row.innerHTML = `
                 <div style="flex:2;min-width:160px;">
-                    <label style="font-size:12px;">Model</label>
+                    <label style="font-size:12px;">Model <span class="required-asterisk">*</span></label>
                     <input type="text" name="manual_products[${i}][model]" placeholder="e.g. 2.0 HP Window Type AC" style="margin-bottom:0;" value="${htmlEscapeDelivery(values.model || '')}">
                 </div>
                 <div style="flex:1;min-width:130px;">
-                    <label style="font-size:12px;">Category <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                    <select name="manual_products[${i}][category_id]" style="margin-bottom:0;">
-                        <option value="">None</option>
+                    <label style="font-size:12px;">Category <span class="required-asterisk">*</span></label>
+                    <select name="manual_products[${i}][category_id]" style="margin-bottom:0;" required>
+                        <option value="" disabled ${values.category_id ? '' : 'selected'}>Select a category</option>
                         ${manualCategoryOptions(values.category_id)}
                     </select>
                 </div>
                 <div style="flex:1;min-width:130px;">
-                    <label style="font-size:12px;">Item Type <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                    <select name="manual_products[${i}][item_type_id]" style="margin-bottom:0;">
-                        <option value="">None</option>
+                    <label style="font-size:12px;">Item Type <span class="required-asterisk">*</span></label>
+                    <select name="manual_products[${i}][item_type_id]" style="margin-bottom:0;" required>
+                        <option value="" disabled ${values.item_type_id ? '' : 'selected'}>Select an item type</option>
                         ${manualItemTypeOptions(values.item_type_id)}
                     </select>
                 </div>
                 <div style="width:110px;">
-                    <label style="font-size:12px;">Quantity</label>
+                    <label style="font-size:12px;">Quantity <span class="required-asterisk">*</span></label>
                     <input type="number" name="manual_products[${i}][quantity]" min="1" step="1" placeholder="0" style="margin-bottom:0;" value="${htmlEscapeDelivery(values.quantity || '')}">
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" onclick="this.closest('.manual-product-row').remove()">Remove</button>

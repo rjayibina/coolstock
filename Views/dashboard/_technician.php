@@ -35,8 +35,19 @@ $requestsUrl = 'index.php?module=requests&action=index';
             </a>
         </div>
 
+        <?php
+        // Same PREVIEW_ROWS cap as the Awaiting Approval table below - see
+        // the note there.
+        $borrowsShown = count($myBorrows);
+        $borrowsTotal = (int) $myStats['active'];
+        ?>
         <div class="section-head">
-            <div class="section-title">Items I Have Out</div>
+            <div class="section-title">
+                Items I Have Out
+                <?php if ($borrowsTotal > $borrowsShown): ?>
+                    <span class="cell-muted" style="font-weight:400;">(showing <?= $borrowsShown ?> of <?= $borrowsTotal ?>)</span>
+                <?php endif; ?>
+            </div>
             <?php if (!empty($myBorrows)): ?>
                 <a href="<?= $requestsUrl ?>&tab=active" class="text-link">View all</a>
             <?php endif; ?>
@@ -80,8 +91,22 @@ $requestsUrl = 'index.php?module=requests&action=index';
             </table>
         </div>
 
+        <?php
+        // This preview table is capped at PREVIEW_ROWS (5) - $myStats['pending']
+        // is the true, unlimited total (same query the Item Requests page's
+        // own "My Pending Requests" stat card uses), so the header says
+        // "Showing X of Y" instead of leaving a hard-capped list looking
+        // like a second, disagreeing total.
+        $pendingShown = count($myRequests);
+        $pendingTotal = (int) $myStats['pending'];
+        ?>
         <div class="section-head">
-            <div class="section-title">Awaiting Approval</div>
+            <div class="section-title">
+                Awaiting Approval
+                <?php if ($pendingTotal > $pendingShown): ?>
+                    <span class="cell-muted" style="font-weight:400;">(showing <?= $pendingShown ?> of <?= $pendingTotal ?>)</span>
+                <?php endif; ?>
+            </div>
             <?php if (!empty($myRequests)): ?>
                 <a href="<?= $requestsUrl ?>&tab=pending" class="text-link">View all</a>
             <?php endif; ?>
@@ -106,9 +131,15 @@ $requestsUrl = 'index.php?module=requests&action=index';
                         </td></tr>
                     <?php else: ?>
                         <?php foreach ($myRequests as $r): ?>
+                            <?php $lineCount = (int) ($r['line_count'] ?? 1); ?>
                             <tr>
-                                <td><strong><?= htmlspecialchars($r['model'] ?? 'Unknown product') ?></strong></td>
-                                <td class="cell-id"><?= (int) $r['quantity'] ?></td>
+                                <td>
+                                    <strong><?= htmlspecialchars($r['model'] ?? 'Unknown product') ?></strong>
+                                    <?php if ($lineCount > 1): ?>
+                                        <span class="cell-muted" style="font-size:12px;">+<?= $lineCount - 1 ?> more</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="cell-id"><?= (int) $r['total_quantity'] ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars(format_datetime($r['transaction_date'])) ?></td>
                                 <td class="cell-muted"><?= htmlspecialchars(trim((string) ($r['notes'] ?? '')) !== '' ? $r['notes'] : '—') ?></td>
                             </tr>

@@ -14,12 +14,19 @@ $activeSubNav = 'itemtypes';
 $count = $pagination['totalCount'];
 require __DIR__ . '/../partials/header.php';
 
-// Builds a pagination link that keeps the current sort
+// Builds a pagination link that keeps the current sort.
+//
+// Reads $_GET directly rather than via `global` on $currentSort above -
+// this file is require()'d from inside ItemTypeController::index(), so
+// its "top-level" code runs in THAT METHOD's local scope, not PHP's
+// real global scope, and `global $x` only ever binds to $GLOBALS['x'].
+// That silently emitted an empty sort on every pagination link. $_GET
+// is a true superglobal, reachable from any scope, so it doesn't have
+// this problem.
 function itemTypePageUrl(int $page): string
 {
-    global $currentSort;
     return "index.php?module=itemtypes&action=index"
-        . "&sort=" . urlencode($currentSort)
+        . "&sort=" . urlencode($_GET['sort'] ?? 'newest')
         . "&page=" . $page;
 }
 ?>
@@ -142,7 +149,7 @@ function itemTypePageUrl(int $page): string
                 </div>
                 <div class="modal-body">
                     <form method="POST" id="addItemTypeForm" action="index.php?module=itemtypes&action=create">
-                        <label for="ait_type_name">Name</label>
+                        <label for="ait_type_name">Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="ait_type_name" name="type_name" placeholder="e.g. Asset, Consumable" maxlength="100" required>
 
                         <label class="checkbox-label">
@@ -169,7 +176,7 @@ function itemTypePageUrl(int $page): string
                     <form method="POST" id="editItemTypeForm" action="index.php?module=itemtypes&action=edit">
                         <input type="hidden" name="item_type_id" id="eit_item_type_id" value="">
 
-                        <label for="eit_type_name">Name</label>
+                        <label for="eit_type_name">Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="eit_type_name" name="type_name" maxlength="100" required>
 
                         <label class="checkbox-label">

@@ -13,19 +13,63 @@ $activeSection = 'inventory';
 $activeSubNav = 'products';
 $count = count($items);
 
-// Builds a pagination link that keeps the current filters
+// Builds a pagination link that keeps the current filters.
+//
+// Reads $_GET directly rather than via `global` on the $current* locals
+// above - this file is require()'d from inside InventoryItemController::
+// index(), so its "top-level" code actually runs in THAT METHOD's local
+// scope, not PHP's real global scope, and `global $x` only ever binds to
+// $GLOBALS['x']. That silently emitted an empty category_id/location_id/
+// sort on every pagination link, dropping whichever filter was active as
+// soon as the user paged forward. $_GET is a true superglobal, reachable
+// from any scope, so it doesn't have this problem.
 function productPageUrl(int $page): string
 {
-    global $currentCategory, $currentLocation, $currentSort;
     return "index.php?module=products&action=index"
-        . "&category_id=" . urlencode($currentCategory)
-        . "&location_id=" . urlencode($currentLocation)
-        . "&sort=" . urlencode($currentSort)
+        . "&category_id=" . urlencode($_GET['category_id'] ?? '')
+        . "&location_id=" . urlencode($_GET['location_id'] ?? '')
+        . "&sort=" . urlencode($_GET['sort'] ?? 'newest')
         . "&page=" . $page;
 }
 
-require __DIR__ . '/../partials/header.php';
+// AJAX pagination fragment (see InventoryItemController::index()): skip the
+// full page chrome, since only the list container below gets returned.
+if (!($ajaxFragment ?? false)) {
+    require __DIR__ . '/../partials/header.php';
+}
+
+// Consumables-specific Brand/Location auto-lock (see
+// updateCategoryDependentFields() below, and the matching logic in
+// Views/products/create.php/edit.php) needs to know which Category is
+// "Consumables & Spare Parts" - matched by name, not a hardcoded id, so
+// this stays correct if the seed data is ever re-ordered. This is a
+// distinct rule from the Item Type lock below.
+$consumablesCategoryId = null;
+foreach ($categories as $cat) {
+    if (strcasecmp(trim($cat['category_name']), 'Consumables & Spare Parts') === 0) {
+        $consumablesCategoryId = (int) $cat['category_id'];
+        break;
+    }
+}
+
+// Item Type lock per category is data-driven via Category::item_type_id
+// (see database/migration_add_item_type_to_categories.sql) rather than
+// hardcoded by category name - any category can be assigned a lock (or
+// left open) from the Categories page's "Locks Item Type" field. Built
+// into plain category_id => item_type_id / item_type_id => type_name
+// maps for updateCategoryDependentFields() below.
+$categoryItemTypeLocks = [];
+foreach ($categories as $cat) {
+    if (!empty($cat['item_type_id'])) {
+        $categoryItemTypeLocks[(int) $cat['category_id']] = (int) $cat['item_type_id'];
+    }
+}
+$itemTypeNames = [];
+foreach ($itemTypes as $t) {
+    $itemTypeNames[(int) $t['item_type_id']] = $t['type_name'];
+}
 ?>
+        <?php if (!($ajaxFragment ?? false)): ?>
         <div class="page-header">
             <div class="page-title-group">
                 <h1 class="page-title">Products</h1>
@@ -157,16 +201,18 @@ require __DIR__ . '/../partials/header.php';
                 <option value="category_asc" <?= $currentSort === 'category_asc' ? 'selected' : '' ?>>Category: A–Z</option>
             </select>
         </div>
+        <?php endif; ?>
 
+        <div id="productsListContainer" data-ajax-list data-ajax-var="productsData">
         <form method="POST" id="bulkForm">
             <div id="bulkBar" class="bulk-bar">
                 <span><strong id="bulkCount">0</strong> selected</span>
-                <select name="bulk_category_id">
+                <select name="bulk_category_id" id="bulk_category_id">
                     <?php foreach ($categories as $cat): ?>
-                        <option value="<?= $cat['category_id'] ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
+                        <option value="<?= $cat['category_id'] ?>" data-category-name="<?= htmlspecialchars($cat['category_name']) ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
                     <?php endforeach; ?>
                 </select>
-                <button type="submit" formaction="index.php?module=products&action=bulkUpdateCategory" class="btn btn-secondary btn-sm">Change Category</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="openBulkCategoryConfirmModal()">Change Category</button>
                 <button type="button" class="btn btn-danger btn-sm" onclick="openBulkStockOutModal()">Stock Out Selected</button>
             </div>
 
@@ -239,6 +285,9 @@ require __DIR__ . '/../partials/header.php';
                 </div>
             </div>
         <?php endif; ?>
+        </div>
+
+        <?php if ($ajaxFragment ?? false) { return; } ?>
 
         <div id="viewProductModal" class="modal-overlay" onclick="if(event.target===this) this.classList.remove('open')">
             <div class="modal-dialog">
@@ -291,66 +340,70 @@ require __DIR__ . '/../partials/header.php';
                         <input type="file" id="ap_product_image" name="product_image" accept="image/jpeg,image/png,image/gif,image/webp"
                                style="margin-bottom:18px;">
 
-                        <label for="ap_model">Model</label>
+                        <label for="ap_model">Model <span class="required-asterisk">*</span></label>
                         <input type="text" id="ap_model" name="model" placeholder="e.g. FTKC50UVM" maxlength="100" required>
 
-                        <label for="ap_category_id">Category</label>
-                        <select id="ap_category_id" name="category_id" required>
+                        <label for="ap_category_id">Category <span class="required-asterisk">*</span></label>
+                        <select id="ap_category_id" name="category_id" onchange="updateCategoryDependentFields('ap')" required>
                             <option value="" disabled selected>Select a category</option>
                             <?php foreach ($categories as $cat): ?>
                                 <option value="<?= $cat['category_id'] ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="ap_brand_id">Brand</label>
+                        <label for="ap_brand_id">Brand <span class="required-asterisk">*</span></label>
                         <select id="ap_brand_id" name="brand_id" required>
                             <option value="" disabled selected>Select a brand</option>
                             <?php foreach ($brands as $b): ?>
-                                <option value="<?= $b['brand_id'] ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
+                                <option value="<?= $b['brand_id'] ?>" data-brand-name="<?= htmlspecialchars($b['brand_name']) ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <input type="hidden" id="ap_brand_id_locked" name="brand_id" value="" disabled>
 
-                        <label for="ap_item_type_id">Item Type</label>
+                        <label for="ap_item_type_id">Item Type <span class="required-asterisk">*</span></label>
                         <select id="ap_item_type_id" name="item_type_id" onchange="updateSpecsVisibility('ap')" required>
                             <option value="" disabled selected>Select an item type</option>
                             <?php foreach ($itemTypes as $t): ?>
                                 <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>"><?= htmlspecialchars($t['type_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <input type="hidden" id="ap_item_type_id_locked" name="item_type_id" value="" disabled>
+                        <p id="ap_item_type_locked_note" class="cell-muted" style="display:none;margin-top:4px;"></p>
 
-                        <label for="ap_location_id">Location</label>
+                        <label for="ap_location_id">Location <span class="required-asterisk">*</span></label>
                         <select id="ap_location_id" name="location_id" required>
                             <option value="" disabled selected>Select a location</option>
                             <?php foreach ($locations as $loc): ?>
-                                <option value="<?= $loc['location_id'] ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
+                                <option value="<?= $loc['location_id'] ?>" data-location-name="<?= htmlspecialchars(strtolower($loc['location_name'])) ?>"><?= htmlspecialchars($loc['location_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <input type="hidden" id="ap_location_id_locked" name="location_id" value="" disabled>
 
-                        <label for="ap_quantity">Quantity <span style="font-weight:400;color:var(--text-muted);">at that location</span></label>
+                        <label for="ap_quantity">Quantity <span class="required-asterisk">*</span> <span style="font-weight:400;color:var(--text-muted);">at that location</span></label>
                         <input type="number" id="ap_quantity" name="quantity" min="0" step="1" placeholder="0" value="0" required>
 
                         <div id="ap_specs_section">
                             <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
 
-                            <label for="ap_energy_rating">Energy Rating</label>
+                            <label for="ap_energy_rating">Energy Rating <span class="required-asterisk">*</span></label>
                             <input type="text" id="ap_energy_rating" name="energy_rating" placeholder="e.g. 5 Star" maxlength="20">
 
-                            <label for="ap_monthly_consumption">Monthly Consumption (kWh)</label>
+                            <label for="ap_monthly_consumption">Monthly Consumption (kWh) <span class="required-asterisk">*</span></label>
                             <input type="number" id="ap_monthly_consumption" name="monthly_consumption" min="0" step="0.01" placeholder="e.g. 120.50">
 
-                            <label for="ap_cooling_capacity">Cooling Capacity</label>
+                            <label for="ap_cooling_capacity">Cooling Capacity <span class="required-asterisk">*</span></label>
                             <input type="text" id="ap_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)" maxlength="50">
 
-                            <label for="ap_refrigerant">Refrigerant</label>
+                            <label for="ap_refrigerant">Refrigerant <span class="required-asterisk">*</span></label>
                             <input type="text" id="ap_refrigerant" name="refrigerant" placeholder="e.g. R32" maxlength="50">
 
-                            <label for="ap_installation_type">Installation Type</label>
+                            <label for="ap_installation_type">Installation Type <span class="required-asterisk">*</span></label>
                             <input type="text" id="ap_installation_type" name="installation_type" placeholder="e.g. Wall Mounted" maxlength="50">
 
-                            <label for="ap_power_input">Power Input</label>
+                            <label for="ap_power_input">Power Input <span class="required-asterisk">*</span></label>
                             <input type="text" id="ap_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz" maxlength="50">
 
-                            <label for="ap_year">Year</label>
+                            <label for="ap_year">Year <span class="required-asterisk">*</span></label>
                             <input type="number" id="ap_year" name="year" min="1990" max="2100" step="1" placeholder="e.g. 2024">
                         </div>
 
@@ -385,55 +438,58 @@ require __DIR__ . '/../partials/header.php';
                                style="margin-bottom:6px;">
                         <div style="font-size:12px;color:var(--text-muted);margin-bottom:18px;">Leave empty to keep the current image, or choose a new file to replace it.</div>
 
-                        <label for="ep_category_id">Category</label>
-                        <select id="ep_category_id" name="category_id" required>
+                        <label for="ep_category_id">Category <span class="required-asterisk">*</span></label>
+                        <select id="ep_category_id" name="category_id" onchange="updateCategoryDependentFields('ep')" required>
                             <option value="" disabled>Select a category</option>
                             <?php foreach ($categories as $cat): ?>
                                 <option value="<?= $cat['category_id'] ?>"><?= htmlspecialchars($cat['category_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="ep_model">Model</label>
+                        <label for="ep_model">Model <span class="required-asterisk">*</span></label>
                         <input type="text" id="ep_model" name="model" maxlength="100" required>
 
-                        <label for="ep_brand_id">Brand <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ep_brand_id" name="brand_id">
-                            <option value="">No brand</option>
+                        <label for="ep_brand_id">Brand <span class="required-asterisk">*</span></label>
+                        <select id="ep_brand_id" name="brand_id" required>
+                            <option value="" disabled>Select a brand</option>
                             <?php foreach ($brands as $b): ?>
-                                <option value="<?= $b['brand_id'] ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
+                                <option value="<?= $b['brand_id'] ?>" data-brand-name="<?= htmlspecialchars($b['brand_name']) ?>"><?= htmlspecialchars($b['brand_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <input type="hidden" id="ep_brand_id_locked" name="brand_id" value="" disabled>
 
-                        <label for="ep_item_type_id">Item Type <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <select id="ep_item_type_id" name="item_type_id" onchange="updateSpecsVisibility('ep')">
-                            <option value="">No item type</option>
+                        <label for="ep_item_type_id">Item Type <span class="required-asterisk">*</span></label>
+                        <select id="ep_item_type_id" name="item_type_id" onchange="updateSpecsVisibility('ep')" required>
+                            <option value="" disabled>Select an item type</option>
                             <?php foreach ($itemTypes as $t): ?>
                                 <option value="<?= $t['item_type_id'] ?>" data-type-name="<?= htmlspecialchars($t['type_name']) ?>"><?= htmlspecialchars($t['type_name']) ?></option>
                             <?php endforeach; ?>
                         </select>
+                        <input type="hidden" id="ep_item_type_id_locked" name="item_type_id" value="" disabled>
+                        <p id="ep_item_type_locked_note" class="cell-muted" style="display:none;margin-top:4px;"></p>
 
                         <div id="ep_specs_section">
                             <h3 style="margin:24px 0 4px;font-size:15px;color:var(--text-muted);">Technical Specifications <span style="font-weight:400;">(required for Asset item types)</span></h3>
 
-                            <label for="ep_energy_rating">Energy Rating</label>
+                            <label for="ep_energy_rating">Energy Rating <span class="required-asterisk">*</span></label>
                             <input type="text" id="ep_energy_rating" name="energy_rating" placeholder="e.g. 5 Star" maxlength="20">
 
-                            <label for="ep_monthly_consumption">Monthly Consumption (kWh)</label>
+                            <label for="ep_monthly_consumption">Monthly Consumption (kWh) <span class="required-asterisk">*</span></label>
                             <input type="number" id="ep_monthly_consumption" name="monthly_consumption" min="0" step="0.01" placeholder="e.g. 120.50">
 
-                            <label for="ep_cooling_capacity">Cooling Capacity</label>
+                            <label for="ep_cooling_capacity">Cooling Capacity <span class="required-asterisk">*</span></label>
                             <input type="text" id="ep_cooling_capacity" name="cooling_capacity" placeholder="e.g. 1.5 HP (12,000 BTU/hr)" maxlength="50">
 
-                            <label for="ep_refrigerant">Refrigerant</label>
+                            <label for="ep_refrigerant">Refrigerant <span class="required-asterisk">*</span></label>
                             <input type="text" id="ep_refrigerant" name="refrigerant" placeholder="e.g. R32" maxlength="50">
 
-                            <label for="ep_installation_type">Installation Type</label>
+                            <label for="ep_installation_type">Installation Type <span class="required-asterisk">*</span></label>
                             <input type="text" id="ep_installation_type" name="installation_type" placeholder="e.g. Wall Mounted" maxlength="50">
 
-                            <label for="ep_power_input">Power Input</label>
+                            <label for="ep_power_input">Power Input <span class="required-asterisk">*</span></label>
                             <input type="text" id="ep_power_input" name="power_input" placeholder="e.g. 220-240V ~50Hz" maxlength="50">
 
-                            <label for="ep_year">Year</label>
+                            <label for="ep_year">Year <span class="required-asterisk">*</span></label>
                             <input type="number" id="ep_year" name="year" min="1990" max="2100" step="1" placeholder="e.g. 2024">
                         </div>
 
@@ -458,7 +514,7 @@ require __DIR__ . '/../partials/header.php';
                         <input type="hidden" name="transaction_type" value="stock_out">
                         <input type="hidden" name="redirect_to" value="products">
 
-                        <label for="sm_location_id">Location</label>
+                        <label for="sm_location_id">Location <span class="required-asterisk">*</span></label>
                         <select id="sm_location_id" name="location_id" required>
                             <option value="" disabled selected>Select a location</option>
                             <?php foreach ($locations as $loc): ?>
@@ -466,25 +522,25 @@ require __DIR__ . '/../partials/header.php';
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="sm_technician_name">Released By</label>
+                        <label for="sm_technician_name">Released By <span class="required-asterisk">*</span></label>
                         <input type="text" id="sm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100" required>
 
-                        <label for="sm_transaction_date">Stock Date</label>
-                        <input type="date" id="sm_transaction_date" name="transaction_date" required>
-
-                        <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+                        <label for="sm_transaction_date">Stock Date <span class="required-asterisk">*</span></label>
+                        <input type="date" id="sm_transaction_date" name="transaction_date" readonly required>
 
                         <div id="sm_quantity_group">
-                            <label for="sm_quantity">Quantity</label>
+                            <label for="sm_quantity">Quantity <span class="required-asterisk">*</span></label>
                             <input type="number" id="sm_quantity" name="quantity" min="1" step="1" placeholder="Enter quantity">
                         </div>
 
                         <div id="sm_serial_group" style="display:none;">
-                            <label>Serial Numbers <span style="font-weight:400;color:var(--text-muted);">(one per unit)</span></label>
+                            <label>Serial Numbers <span class="required-asterisk">*</span> <span style="font-weight:400;color:var(--text-muted);">(one per unit)</span></label>
                             <div id="sm_serial_rows"></div>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="addSerialRow('sm_serial_rows')" style="margin-top:6px;">+ Add Serial Number</button>
                         </div>
+
+                        <label for="sm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <textarea id="sm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-danger-solid">Remove Stock</button>
@@ -503,7 +559,7 @@ require __DIR__ . '/../partials/header.php';
                 </div>
                 <div class="modal-body">
                     <form method="POST" id="bulkStockForm" action="index.php?module=transactions&action=bulkStockOut">
-                        <label for="bsm_location_id">Stock Out From</label>
+                        <label for="bsm_location_id">Stock Out From <span class="required-asterisk">*</span></label>
                         <select id="bsm_location_id" name="location_id" required>
                             <option value="" disabled selected>Select a location</option>
                             <?php foreach ($locations as $loc): ?>
@@ -511,23 +567,40 @@ require __DIR__ . '/../partials/header.php';
                             <?php endforeach; ?>
                         </select>
 
-                        <label for="bsm_technician_name">Released By</label>
+                        <label for="bsm_technician_name">Released By <span class="required-asterisk">*</span></label>
                         <input type="text" id="bsm_technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100" required>
 
-                        <label for="bsm_transaction_date">Stock Date</label>
-                        <input type="date" id="bsm_transaction_date" name="transaction_date" required>
-
-                        <label for="bsm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
-                        <textarea id="bsm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
+                        <label for="bsm_transaction_date">Stock Date <span class="required-asterisk">*</span></label>
+                        <input type="date" id="bsm_transaction_date" name="transaction_date" readonly required>
 
                         <label>Products</label>
                         <div id="bsm_product_rows" class="table-card" style="padding:14px;margin-bottom:16px;"></div>
+
+                        <label for="bsm_notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+                        <textarea id="bsm_notes" name="notes" placeholder="Optional notes about this stock movement"></textarea>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-danger-solid">Remove Stock</button>
                             <button type="button" class="btn btn-secondary" onclick="closeModal('bulkStockModal')">Cancel</button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <div id="bulkCategoryConfirmModal" class="modal-overlay" onclick="if(event.target===this) closeModal('bulkCategoryConfirmModal')">
+            <div class="modal-dialog modal-dialog-sm">
+                <div class="modal-header">
+                    <h3>Change Category</h3>
+                    <button type="button" class="modal-close" onclick="closeModal('bulkCategoryConfirmModal')">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p style="text-align:center;">Move <strong id="bcc_count"></strong> selected product<span id="bcc_plural"></span> to <strong id="bcc_category_name"></strong>?</p>
+                    <p class="cell-muted" style="text-align:center;">This action cannot be undone.</p>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-primary" onclick="confirmBulkCategoryChange()">Change Category</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('bulkCategoryConfirmModal')">Cancel</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -563,7 +636,7 @@ require __DIR__ . '/../partials/header.php';
         </div>
 
         <script>
-        const productsData = <?= json_encode(array_column($items, null, 'item_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        window.productsData = <?= json_encode(array_column($items, null, 'item_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
         function htmlEscape(str) {
             const div = document.createElement('div');
@@ -631,6 +704,89 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById(id)?.classList.remove('open');
         }
 
+        const CONSUMABLES_CATEGORY_ID = <?= json_encode($consumablesCategoryId) ?>;
+        const CATEGORY_ITEM_TYPE_LOCKS = <?= json_encode($categoryItemTypeLocks) ?>;
+        const ITEM_TYPE_NAMES = <?= json_encode($itemTypeNames) ?>;
+
+        function lockSelect(select, hidden, value) {
+            select.disabled = true;
+            hidden.disabled = false;
+            hidden.value = value;
+        }
+
+        function unlockSelect(select, hidden) {
+            select.disabled = false;
+            hidden.disabled = true;
+            hidden.value = '';
+        }
+
+        // Consumables & Spare Parts: Brand auto-locked to N/A, and (Add
+        // modal only - Edit has no Location field, same as
+        // Views/products/edit.php) Location auto-locked to Warehouse.
+        // This one stays keyed off that specific category by name - it's
+        // a distinct rule from the Item Type lock below. $prefix is 'ap'
+        // (Add modal) or 'ep' (Edit modal) - mirrors updateSpecsVisibility()
+        // above.
+        //
+        // Item Type lock is data-driven per category (Category::
+        // item_type_id, set from the Categories page's "Locks Item Type"
+        // field - see CATEGORY_ITEM_TYPE_LOCKS above) instead of hardcoded
+        // by category name/a fixed Asset-vs-Consumable split, so a new
+        // category can lock to any Item Type (or none) without a code
+        // change here.
+        function updateCategoryDependentFields(prefix) {
+            const categorySelect = document.getElementById(prefix + '_category_id');
+            const categoryId = categorySelect.value ? parseInt(categorySelect.value, 10) : null;
+
+            const brandSelect = document.getElementById(prefix + '_brand_id');
+            const brandHidden = document.getElementById(prefix + '_brand_id_locked');
+            const typeSelect = document.getElementById(prefix + '_item_type_id');
+            const typeHidden = document.getElementById(prefix + '_item_type_id_locked');
+            const typeLockedNote = document.getElementById(prefix + '_item_type_locked_note');
+            const locationSelect = document.getElementById(prefix + '_location_id');
+            const locationHidden = document.getElementById(prefix + '_location_id_locked');
+
+            if (categoryId !== null && categoryId === CONSUMABLES_CATEGORY_ID) {
+                let naOption = null;
+                for (const opt of brandSelect.options) {
+                    if (opt.dataset.brandName === 'N/A') { naOption = opt; break; }
+                }
+                if (naOption) {
+                    brandSelect.value = naOption.value;
+                    lockSelect(brandSelect, brandHidden, naOption.value);
+                }
+
+                if (locationSelect) {
+                    let warehouseOption = null;
+                    for (const opt of locationSelect.options) {
+                        if (opt.dataset.locationName === 'warehouse') { warehouseOption = opt; break; }
+                    }
+                    if (warehouseOption) {
+                        locationSelect.value = warehouseOption.value;
+                        lockSelect(locationSelect, locationHidden, warehouseOption.value);
+                    }
+                }
+            } else {
+                unlockSelect(brandSelect, brandHidden);
+                if (locationSelect) {
+                    unlockSelect(locationSelect, locationHidden);
+                }
+            }
+
+            const lockedTypeId = categoryId !== null ? CATEGORY_ITEM_TYPE_LOCKS[categoryId] : undefined;
+            if (lockedTypeId !== undefined) {
+                typeSelect.value = String(lockedTypeId);
+                lockSelect(typeSelect, typeHidden, String(lockedTypeId));
+                typeLockedNote.textContent = 'Item Type is set to ' + (ITEM_TYPE_NAMES[lockedTypeId] || 'a fixed type') + ' for this category.';
+                typeLockedNote.style.display = '';
+            } else {
+                unlockSelect(typeSelect, typeHidden);
+                typeLockedNote.style.display = 'none';
+            }
+
+            updateSpecsVisibility(prefix);
+        }
+
         // Shows the Technical Specifications section (and marks its fields
         // required) only when the selected Item Type is "Asset" - hidden and
         // optional for Consumable or no item type selected. $prefix is 'ap'
@@ -653,6 +809,10 @@ require __DIR__ . '/../partials/header.php';
 
         function openAddProductModal() {
             document.getElementById('addProductForm')?.reset();
+            unlockSelect(document.getElementById('ap_brand_id'), document.getElementById('ap_brand_id_locked'));
+            unlockSelect(document.getElementById('ap_item_type_id'), document.getElementById('ap_item_type_id_locked'));
+            unlockSelect(document.getElementById('ap_location_id'), document.getElementById('ap_location_id_locked'));
+            document.getElementById('ap_item_type_locked_note').style.display = 'none';
             updateSpecsVisibility('ap');
             document.getElementById('addProductModal').classList.add('open');
         }
@@ -684,7 +844,7 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('ep_year').value = p.year || '';
             document.getElementById('ep_category_id').value = p.category_id || '';
 
-            updateSpecsVisibility('ep');
+            updateCategoryDependentFields('ep');
             document.getElementById('editProductModal').classList.add('open');
         }
 
@@ -788,6 +948,30 @@ require __DIR__ . '/../partials/header.php';
             const selectAll = document.getElementById('selectAll');
             selectAll.checked = checked > 0 && checked === all;
             selectAll.indeterminate = checked > 0 && checked < all;
+        }
+
+        // Bulk category change re-files every selected product into
+        // another category in one irreversible update - confirmed with a
+        // modal (naming the count and destination) instead of submitting
+        // straight from the bulk bar's own button.
+        function openBulkCategoryConfirmModal() {
+            const checked = document.querySelectorAll('.product-check:checked').length;
+            if (checked === 0) {
+                return;
+            }
+            const select = document.getElementById('bulk_category_id');
+            const categoryName = select.options[select.selectedIndex]?.dataset.categoryName || select.value;
+
+            document.getElementById('bcc_count').textContent = checked;
+            document.getElementById('bcc_plural').textContent = checked === 1 ? '' : 's';
+            document.getElementById('bcc_category_name').textContent = categoryName;
+            document.getElementById('bulkCategoryConfirmModal').classList.add('open');
+        }
+
+        function confirmBulkCategoryChange() {
+            const form = document.getElementById('bulkForm');
+            form.action = 'index.php?module=products&action=bulkUpdateCategory';
+            form.submit();
         }
 
         // Close dropdown/modal on outside click or Escape

@@ -25,14 +25,17 @@ class Transaction
 
     public const TYPES = ['item_request', 'borrow', 'return', 'stock_in', 'stock_out', 'delivery', 'transfer'];
 
-    /** The Product Movement "Remarks" filter dropdown's option list - a
+    /** The Product Movement "Status" filter dropdown's option list - a
      *  deliberately smaller set than TYPES. 'stock_in' here also matches
      *  'delivery' rows (see buildFilterClause()) since they're presented
-     *  as one "Stock In" concept. Item Request/Borrow/Return aren't
-     *  offered as filters here - that workflow has its own page now
-     *  (see ItemRequestController, module=requests) with its own
-     *  status-based filtering instead of Product Movement's. */
+     *  as one "Stock In" concept. Borrow/Return still aren't offered as
+     *  filters here - that workflow has its own page (see
+     *  ItemRequestController, module=requests) with its own status-based
+     *  filtering instead of Product Movement's - but Item Request itself
+     *  is, so Warehouse Staff can see submitted requests alongside every
+     *  other movement type on this page too. */
     public const MOVEMENT_FILTERS = [
+        'item_request' => 'Item Request',
         'stock_in' => 'Stock In',
         'stock_out' => 'Stock Out',
         'transfer' => 'Transfer',
@@ -161,7 +164,7 @@ class Transaction
      *  Movement "view products in this order/transfer" modal. */
     public function readByReferenceNumber(string $referenceNumber): array
     {
-        $query = "SELECT t.*, i.model, l.location_name, tl.location_name AS to_location_name
+        $query = "SELECT t.*, i.model, i.item_type_id, l.location_name, tl.location_name AS to_location_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
                   LEFT JOIN locations l ON t.location_id = l.location_id
@@ -256,7 +259,7 @@ class Transaction
      *  agree with each other instead of "Stock In" in the dropdown
      *  silently excluding Delivery rows. Every other $type still matches
      *  exactly one transaction_type. */
-    private function buildFilterClause(?int $itemId, ?string $type, ?string $search, ?string $dateFrom = null, ?string $dateTo = null, string $tableAlias = 't', string $itemAlias = 'i'): array
+    private function buildFilterClause(?int $itemId, ?string $type, ?string $search, ?string $dateFrom = null, ?string $dateTo = null, ?int $locationId = null, string $tableAlias = 't', string $itemAlias = 'i'): array
     {
         $where = "1=1";
         $params = [];
@@ -283,6 +286,13 @@ class Transaction
             $where .= " AND DATE({$tableAlias}.created_at) <= :date_to";
             $params[':date_to'] = $dateTo;
         }
+        if ($locationId) {
+            // Matches either side of a Transfer (From or To), not just the
+            // primary location_id - so filtering by "Warehouse" surfaces a
+            // Transfer that moved stock into it, not just out of it.
+            $where .= " AND ({$tableAlias}.location_id = :location_id OR {$tableAlias}.to_location_id = :location_id)";
+            $params[':location_id'] = $locationId;
+        }
 
         return [$where, $params];
     }
@@ -290,9 +300,9 @@ class Transaction
     /** Count of DISTINCT order/transfer groups matching the same filters as
      *  readGrouped() - for pagination on the consolidated Product Movement
      *  list. See readGrouped() for what a "group" is. */
-    public function countGroups(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null): int
+    public function countGroups(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null, ?int $locationId = null): int
     {
-        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo);
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo, $locationId);
 
         $query = "SELECT COUNT(*) AS total FROM (
                       SELECT COALESCE(t.reference_number, CONCAT('txn-', t.transaction_id)) AS grouping_key
@@ -328,11 +338,11 @@ class Transaction
      *  the representative - not silently dropping the whole group because
      *  the group's usual first line doesn't happen to match.
      *
-     *  Same $itemId/$type/$search/$dateFrom/$dateTo/$sort/$limit/$offset
-     *  contract as readAll(). */
-    public function readGrouped(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
+     *  Same $itemId/$type/$search/$dateFrom/$dateTo/$locationId/$sort/
+     *  $limit/$offset contract as readAll(). */
+    public function readGrouped(?int $itemId = null, ?string $type = null, ?string $search = null, ?string $dateFrom = null, ?string $dateTo = null, ?string $sort = null, ?int $limit = null, ?int $offset = null, ?int $locationId = null): array
     {
-        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo, 't2', 'i2');
+        [$where, $params] = $this->buildFilterClause($itemId, $type, $search, $dateFrom, $dateTo, $locationId, 't2', 'i2');
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
 
         $query = "SELECT t.*, i.model, l.location_name, tl.location_name AS to_location_name, g.line_count, g.total_quantity
@@ -475,7 +485,7 @@ class Transaction
      *  Request/Borrow row before acting on it (approve/decline/return). */
     public function readById(int $id): ?array
     {
-        $query = "SELECT t.*, i.model, l.location_name
+        $query = "SELECT t.*, i.model, i.item_type_id, l.location_name
                   FROM {$this->table} t
                   LEFT JOIN inventory_items i ON t.item_id = i.item_id
                   LEFT JOIN locations l ON t.location_id = l.location_id
@@ -579,20 +589,30 @@ class Transaction
      *  returned_damaged_quantity is named apart from the table's own
      *  damaged_quantity column on purpose: SELECT t.* already carries
      *  that one (per-Return-row), and two columns of the same name would
-     *  silently collide in the fetched array. */
+     *  silently collide in the fetched array.
+     *
+     *  last_return_id is separate from last_return_date (same subquery,
+     *  keyed off transaction_id instead of transaction_date) so a caller
+     *  merging Borrow rows with other request types into one History list
+     *  can sort by when a Borrow actually CLOSED OUT (its last Return),
+     *  not by the Borrow row's own transaction_id, which was assigned back
+     *  when it was first approved and can be far older than today's close-
+     *  out - see ItemRequestController::index()'s 'history' tab. */
     public function readRequestList(string $type, array $statuses = [], ?string $technicianName = null, ?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
         [$where, $params] = $this->buildRequestFilterClause($type, $statuses, $technicianName);
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
         $requestedBy = $this->requesterNameExpression($type);
 
-        $query = "SELECT t.*, i.model, l.location_name,
+        $query = "SELECT t.*, i.model, i.item_type_id, l.location_name,
                          (SELECT COALESCE(SUM(r.quantity), 0) FROM {$this->table} r
                           WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS returned_quantity,
                          (SELECT COALESCE(SUM(r.damaged_quantity), 0) FROM {$this->table} r
                           WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS returned_damaged_quantity,
                          (SELECT MAX(r.transaction_date) FROM {$this->table} r
                           WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS last_return_date,
+                         (SELECT MAX(r.transaction_id) FROM {$this->table} r
+                          WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return') AS last_return_id,
                          (SELECT r.notes FROM {$this->table} r
                           WHERE r.related_transaction_id = t.transaction_id AND r.transaction_type = 'return'
                           ORDER BY r.transaction_id DESC LIMIT 1) AS last_return_notes,
@@ -662,7 +682,7 @@ class Transaction
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['date_desc'];
         $requestedBy = $this->requesterNameExpression($type);
 
-        $query = "SELECT t.*, i.model, l.location_name,
+        $query = "SELECT t.*, i.model, i.item_type_id, l.location_name,
                          {$requestedBy} AS requested_by_name,
                          g.line_count, g.total_quantity
                   FROM {$this->table} t
@@ -742,6 +762,20 @@ class Transaction
     {
         $stmt = $this->conn->prepare("UPDATE {$this->table} SET status = :status WHERE transaction_id = :id");
         $stmt->bindValue(':status', $status);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        return $stmt->execute();
+    }
+
+    /** Declines a pending Item Request and records the mandatory reason,
+     *  replacing whatever note the technician originally submitted - the
+     *  decline reason is the one that matters once a request is closed
+     *  out (see ItemRequestController::decline()). */
+    public function declineWithReason(int $id, string $reason): bool
+    {
+        $stmt = $this->conn->prepare(
+            "UPDATE {$this->table} SET status = 'declined', notes = :notes WHERE transaction_id = :id"
+        );
+        $stmt->bindValue(':notes', $reason);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         return $stmt->execute();
     }

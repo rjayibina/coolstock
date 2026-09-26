@@ -67,14 +67,23 @@ class DashboardController
             $me = $viewer['full_name'] ?? '';
 
             try {
-                $myStats['pending'] = $transaction->countRequestList('item_request', ['pending'], $me);
+                // 'pending' is a count of REQUESTS (consolidated by
+                // reference_number), matching the row count on the Item
+                // Requests > My Pending Requests tab - not a count of
+                // individual product lines, which is what
+                // countRequestList() (ungrouped) returns.
+                $myStats['pending'] = $transaction->countRequestListGrouped('item_request', ['pending'], $me);
                 $myStats['active'] = $transaction->countRequestList('borrow', ['active'], $me);
                 $myStats['units_out'] = $transaction->outstandingBorrowedUnits($me);
 
                 // Short previews - the Item Requests page owns the full,
-                // paginated lists.
+                // paginated lists. Pending requests use the same
+                // consolidated-by-reference_number grouping as the My
+                // Pending Requests tab (readRequestListGrouped()), so a
+                // batch submission is one row here too and this preview's
+                // row count can never disagree with $myStats['pending'].
                 $myBorrows = $transaction->readRequestList('borrow', ['active'], $me, 'date_desc', self::PREVIEW_ROWS, 0);
-                $myRequests = $transaction->readRequestList('item_request', ['pending'], $me, 'date_desc', self::PREVIEW_ROWS, 0);
+                $myRequests = $transaction->readRequestListGrouped('item_request', ['pending'], $me, 'date_desc', self::PREVIEW_ROWS, 0);
             } catch (PDOException $e) {
                 $dbError = "Could not load your request data — make sure the 'transactions' table has been created (run database/coolstock_full_setup.sql).";
             }
@@ -88,11 +97,13 @@ class DashboardController
 
             try {
                 // Unscoped (null requester) - staff see the whole floor's
-                // queue, not just their own.
-                $ops['pending_approvals'] = $transaction->countRequestList('item_request', ['pending'], null);
+                // queue, not just their own. Grouped, same as
+                // $myStats['pending'] above and the Item Requests page's
+                // own Pending Requests row count.
+                $ops['pending_approvals'] = $transaction->countRequestListGrouped('item_request', ['pending'], null);
                 $ops['active_borrows'] = $transaction->countRequestList('borrow', ['active'], null);
                 $ops['units_out'] = $transaction->outstandingBorrowedUnits(null);
-                $approvalQueue = $transaction->readRequestList('item_request', ['pending'], null, 'date_desc', self::PREVIEW_ROWS, 0);
+                $approvalQueue = $transaction->readRequestListGrouped('item_request', ['pending'], null, 'date_desc', self::PREVIEW_ROWS, 0);
             } catch (PDOException $e) {
                 $dbError = ($dbError ? $dbError . " " : "") . "Could not load the approval queue.";
             }

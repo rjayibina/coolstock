@@ -15,12 +15,19 @@ $count = $pagination['totalCount'];
 $canManageLocations = has_role('admin');
 require __DIR__ . '/../partials/header.php';
 
-// Builds a pagination link that keeps the current sort
+// Builds a pagination link that keeps the current sort.
+//
+// Reads $_GET directly rather than via `global` on $currentSort above -
+// this file is require()'d from inside LocationController::index(), so
+// its "top-level" code runs in THAT METHOD's local scope, not PHP's
+// real global scope, and `global $x` only ever binds to $GLOBALS['x'].
+// That silently emitted an empty sort on every pagination link. $_GET
+// is a true superglobal, reachable from any scope, so it doesn't have
+// this problem.
 function locationPageUrl(int $page): string
 {
-    global $currentSort;
     return "index.php?module=locations&action=index"
-        . "&sort=" . urlencode($currentSort)
+        . "&sort=" . urlencode($_GET['sort'] ?? 'newest')
         . "&page=" . $page;
 }
 ?>
@@ -154,7 +161,7 @@ function locationPageUrl(int $page): string
                 </div>
                 <div class="modal-body">
                     <form method="POST" action="index.php?module=locations&action=create">
-                        <label for="al_location_name">Name</label>
+                        <label for="al_location_name">Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="al_location_name" name="location_name" placeholder="e.g. Main Store, Warehouse" maxlength="100" required>
 
                         <div class="form-actions">
@@ -176,7 +183,7 @@ function locationPageUrl(int $page): string
                     <form method="POST" id="editLocationForm" action="index.php?module=locations&action=edit">
                         <input type="hidden" name="location_id" id="el_location_id" value="">
 
-                        <label for="el_location_name">Name</label>
+                        <label for="el_location_name">Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="el_location_name" name="location_name" maxlength="100" required>
 
                         <div class="form-actions">

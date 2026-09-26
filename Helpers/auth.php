@@ -43,3 +43,11 @@ function has_role(string ...$roles): bool
     $current = current_user();
     return $current !== null && in_array($current['role'], $roles, true);
 }
+
+/** Is this an AJAX request (used to serve a partial list/table fragment
+ *  instead of a full page - see the pagination pattern in index.php's
+ *  listing controllers)? */
+function is_ajax_request(): bool
+{
+    return strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
+}

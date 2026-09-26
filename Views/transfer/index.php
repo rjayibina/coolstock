@@ -36,7 +36,7 @@ $oldQuantities = $old['quantities'] ?? [];
         <?php else: ?>
         <form method="POST" action="index.php?module=transfer&action=index" id="transferForm">
             <div class="form-card">
-                <label for="from_location_id">From Location</label>
+                <label for="from_location_id">From Location <span class="required-asterisk">*</span></label>
                 <select id="from_location_id" name="from_location_id" required onchange="updateAvailability()">
                     <option value="" disabled <?= empty($old['from_location_id']) ? 'selected' : '' ?>>Select a location</option>
                     <?php foreach ($locations as $loc): ?>
@@ -44,7 +44,7 @@ $oldQuantities = $old['quantities'] ?? [];
                     <?php endforeach; ?>
                 </select>
 
-                <label for="to_location_id">To Location</label>
+                <label for="to_location_id">To Location <span class="required-asterisk">*</span></label>
                 <select id="to_location_id" name="to_location_id" required>
                     <option value="" disabled <?= empty($old['to_location_id']) ? 'selected' : '' ?>>Select a location</option>
                     <?php foreach ($locations as $loc): ?>
@@ -52,12 +52,12 @@ $oldQuantities = $old['quantities'] ?? [];
                     <?php endforeach; ?>
                 </select>
 
-                <label for="technician_name">Moved By</label>
+                <label for="technician_name">Moved By <span class="required-asterisk">*</span></label>
                 <input type="text" id="technician_name" name="technician_name" placeholder="e.g. Juan Dela Cruz" maxlength="100"
                        value="<?= htmlspecialchars($old['technician_name'] ?? '') ?>" required>
 
-                <label for="transaction_date">Transfer Date</label>
-                <input type="date" id="transaction_date" name="transaction_date"
+                <label for="transaction_date">Transfer Date <span class="required-asterisk">*</span></label>
+                <input type="date" id="transaction_date" name="transaction_date" readonly
                        value="<?= htmlspecialchars($old['transaction_date'] ?? date('Y-m-d')) ?>" required>
 
                 <label for="notes">Notes <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>

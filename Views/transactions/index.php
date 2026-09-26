@@ -2,6 +2,7 @@
 /**
  * Views/transactions/index.php
  * Expects: $transactions (array), $items (array, for the filter dropdown),
+ *          $locations (array, for the Location filter dropdown),
  *          $pagination (array: page, perPage, totalCount, totalPages), $error (string|null)
  */
 require_once __DIR__ . '/../../Models/Transaction.php';
@@ -9,6 +10,7 @@ $status = $_GET['status'] ?? null;
 $bulkCount = (int) ($_GET['count'] ?? 0);
 $currentItem = $_GET['item_id'] ?? '';
 $currentType = $_GET['type'] ?? '';
+$currentLocation = $_GET['location_id'] ?? '';
 $currentDateFrom = $_GET['date_from'] ?? '';
 $currentDateTo = $_GET['date_to'] ?? '';
 $currentSort = $_GET['sort'] ?? 'date_desc';
@@ -16,21 +18,39 @@ $pageTitle = 'Product Movement';
 $activeSection = 'inventory';
 $activeSubNav = 'transactions';
 
-// Builds a pagination/sort link that keeps the current filters
+// Builds a pagination/sort link that keeps the current filters.
+//
+// Reads $_GET directly rather than the $current*/superglobal-adjacent
+// locals above via `global` - this file is require()'d from inside
+// TransactionController::index(), so its "top-level" code (including
+// those $current* assignments) actually runs in THAT METHOD's local
+// scope, not PHP's real global scope. `global $x` only ever binds to
+// $GLOBALS['x'], so it silently picked up nothing here, and every
+// pagination/sort link emitted an empty item_id/type/location_id/
+// date_from/date_to/sort - dropping whichever filter was active the
+// moment the user paged forward (reproduced: filtering by Location and
+// clicking Next lost the filter, showing the unfiltered page count).
+// $_GET is a true superglobal, so it's reachable from any scope without
+// this problem.
 function transactionPageUrl(int $page): string
 {
-    global $currentItem, $currentType, $currentDateFrom, $currentDateTo, $currentSort;
     return "index.php?module=transactions&action=index"
-        . "&item_id=" . urlencode($currentItem)
-        . "&type=" . urlencode($currentType)
-        . "&date_from=" . urlencode($currentDateFrom)
-        . "&date_to=" . urlencode($currentDateTo)
-        . "&sort=" . urlencode($currentSort)
+        . "&item_id=" . urlencode($_GET['item_id'] ?? '')
+        . "&type=" . urlencode($_GET['type'] ?? '')
+        . "&location_id=" . urlencode($_GET['location_id'] ?? '')
+        . "&date_from=" . urlencode($_GET['date_from'] ?? '')
+        . "&date_to=" . urlencode($_GET['date_to'] ?? '')
+        . "&sort=" . urlencode($_GET['sort'] ?? 'date_desc')
         . "&page=" . $page;
 }
 
-require __DIR__ . '/../partials/header.php';
+// AJAX pagination fragment (see TransactionController::index()): skip the
+// full page chrome, since only the list container below gets returned.
+if (!($ajaxFragment ?? false)) {
+    require __DIR__ . '/../partials/header.php';
+}
 ?>
+        <?php if (!($ajaxFragment ?? false)): ?>
         <div class="page-header">
             <div class="page-title-group">
                 <h1 class="page-title">Product Movement</h1>
@@ -48,7 +68,7 @@ require __DIR__ . '/../partials/header.php';
             </div>
         </div>
 
-        <div id="filterPanel" class="filter-panel <?= ($currentItem !== '' || $currentType !== '' || $currentDateFrom !== '' || $currentDateTo !== '') ? 'open' : '' ?>">
+        <div id="filterPanel" class="filter-panel <?= ($currentItem !== '' || $currentType !== '' || $currentLocation !== '' || $currentDateFrom !== '' || $currentDateTo !== '') ? 'open' : '' ?>">
             <form method="GET" action="index.php" class="filter-form">
                 <input type="hidden" name="module" value="transactions">
                 <input type="hidden" name="sort" value="<?= htmlspecialchars($currentSort) ?>">
@@ -62,11 +82,20 @@ require __DIR__ . '/../partials/header.php';
                     </select>
                 </div>
                 <div>
-                    <label>Remarks</label>
+                    <label>Status</label>
                     <select name="type" onchange="this.form.submit()">
-                        <option value="">All Remarks</option>
+                        <option value="">All Statuses</option>
                         <?php foreach (Transaction::MOVEMENT_FILTERS as $type => $label): ?>
                             <option value="<?= $type ?>" <?= $currentType === $type ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label>Location</label>
+                    <select name="location_id" onchange="this.form.submit()">
+                        <option value="">All Locations</option>
+                        <?php foreach ($locations as $loc): ?>
+                            <option value="<?= $loc['location_id'] ?>" <?= ($currentLocation == $loc['location_id']) ? 'selected' : '' ?>><?= htmlspecialchars($loc['location_name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -80,26 +109,31 @@ require __DIR__ . '/../partials/header.php';
                     <input type="date" name="date_to" value="<?= htmlspecialchars($currentDateTo) ?>" onchange="this.form.submit()"
                            style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;">
                 </div>
-                <?php if ($currentItem !== '' || $currentType !== '' || $currentDateFrom !== '' || $currentDateTo !== ''): ?>
+                <?php if ($currentItem !== '' || $currentType !== '' || $currentLocation !== '' || $currentDateFrom !== '' || $currentDateTo !== ''): ?>
                     <a href="index.php?module=transactions&action=index&sort=<?= urlencode($currentSort) ?>" class="btn btn-secondary btn-sm" style="align-self:flex-end;">Clear</a>
                 <?php endif; ?>
             </form>
         </div>
 
-        <?php if ($currentItem !== '' || $currentType !== '' || $currentDateFrom !== '' || $currentDateTo !== ''): ?>
+        <?php if ($currentItem !== '' || $currentType !== '' || $currentLocation !== '' || $currentDateFrom !== '' || $currentDateTo !== ''): ?>
             <?php
             // One removable pill per active filter - see the same pattern
             // in Views/products/index.php. Removing a chip clears only
             // that one filter, keeping the rest (and the current sort).
             $itemLabel = array_values(array_filter($items, fn($it) => (string) $it['item_id'] === (string) $currentItem))[0]['model'] ?? null;
             $typeLabel = Transaction::MOVEMENT_FILTERS[$currentType] ?? null;
+            $locationLabel = array_values(array_filter($locations, fn($l) => (string) $l['location_id'] === (string) $currentLocation))[0]['location_name'] ?? null;
+            // Same $_GET-direct fix as transactionPageUrl() above - `global`
+            // can't reach this file's top-level $current* locals from here,
+            // since this file runs inside TransactionController::index()'s
+            // own scope, not PHP's real global scope.
             function transactionChipUrl(string $omit): string
             {
-                global $currentItem, $currentType, $currentDateFrom, $currentDateTo, $currentSort;
                 $params = [
-                    'item_id' => $currentItem, 'type' => $currentType,
-                    'date_from' => $currentDateFrom, 'date_to' => $currentDateTo,
-                    'sort' => $currentSort,
+                    'item_id' => $_GET['item_id'] ?? '', 'type' => $_GET['type'] ?? '',
+                    'location_id' => $_GET['location_id'] ?? '',
+                    'date_from' => $_GET['date_from'] ?? '', 'date_to' => $_GET['date_to'] ?? '',
+                    'sort' => $_GET['sort'] ?? 'date_desc',
                 ];
                 $params[$omit] = '';
                 return "index.php?module=transactions&action=index&" . http_build_query($params);
@@ -114,8 +148,14 @@ require __DIR__ . '/../partials/header.php';
                 <?php endif; ?>
                 <?php if ($currentType !== '' && $typeLabel !== null): ?>
                     <span class="filter-chip">
-                        Remarks: <?= htmlspecialchars($typeLabel) ?>
-                        <a href="<?= transactionChipUrl('type') ?>" class="filter-chip-remove" aria-label="Remove remarks filter">&times;</a>
+                        Status: <?= htmlspecialchars($typeLabel) ?>
+                        <a href="<?= transactionChipUrl('type') ?>" class="filter-chip-remove" aria-label="Remove status filter">&times;</a>
+                    </span>
+                <?php endif; ?>
+                <?php if ($currentLocation !== '' && $locationLabel !== null): ?>
+                    <span class="filter-chip">
+                        Location: <?= htmlspecialchars($locationLabel) ?>
+                        <a href="<?= transactionChipUrl('location_id') ?>" class="filter-chip-remove" aria-label="Remove location filter">&times;</a>
                     </span>
                 <?php endif; ?>
                 <?php if ($currentDateFrom !== ''): ?>
@@ -154,13 +194,15 @@ require __DIR__ . '/../partials/header.php';
                 <option value="product_desc" <?= $currentSort === 'product_desc' ? 'selected' : '' ?>>Product: Z–A</option>
             </select>
         </div>
+        <?php endif; ?>
 
+        <div id="transactionsListContainer" data-ajax-list data-ajax-var="transactionsData">
         <div class="table-card">
                 <table id="transactionTable">
                     <thead>
                         <tr>
                             <th>Product</th>
-                            <th>Remarks</th>
+                            <th>Status</th>
                             <th>Reference #</th>
                             <th>Quantity</th>
                             <th>Date</th>
@@ -217,6 +259,9 @@ require __DIR__ . '/../partials/header.php';
                 </div>
             </div>
         <?php endif; ?>
+        </div>
+
+        <?php if ($ajaxFragment ?? false) { return; } ?>
 
         <div id="viewTransactionModal" class="modal-overlay" onclick="if(event.target===this) this.classList.remove('open')">
             <div class="modal-dialog">
@@ -230,7 +275,7 @@ require __DIR__ . '/../partials/header.php';
                     </div>
                     <table style="width:100%;font-size:13.5px;border-collapse:collapse;">
                         <tr><td style="padding:6px 0;color:var(--text-muted);width:140px;">Quantity</td><td id="vtm-quantity" style="padding:6px 0;font-weight:600;"></td></tr>
-                        <tr><td style="padding:6px 0;color:var(--text-muted);" id="vtm-technician-label">Technician</td><td id="vtm-technician" style="padding:6px 0;font-weight:600;"></td></tr>
+                        <tr><td style="padding:6px 0;color:var(--text-muted);" id="vtm-technician-label">User</td><td id="vtm-technician" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr><td style="padding:6px 0;color:var(--text-muted);">Date</td><td id="vtm-date" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr id="vtm-location-row" style="display:none;"><td id="vtm-location-label" style="padding:6px 0;color:var(--text-muted);">Location</td><td id="vtm-location" style="padding:6px 0;font-weight:600;"></td></tr>
                         <tr id="vtm-to-location-row" style="display:none;"><td style="padding:6px 0;color:var(--text-muted);">To Location</td><td id="vtm-to-location" style="padding:6px 0;font-weight:600;"></td></tr>
@@ -278,7 +323,7 @@ require __DIR__ . '/../partials/header.php';
         </div>
 
         <script>
-        const transactionsData = <?= json_encode(array_column($transactions, null, 'transaction_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+        window.transactionsData = <?= json_encode(array_column($transactions, null, 'transaction_id'), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
         // Fetches every line item sharing $referenceNumber (a Delivery
         // order #, Transfer #, or bulk Stock Out # - see
@@ -412,7 +457,12 @@ require __DIR__ . '/../partials/header.php';
             document.getElementById('vtm-quantity').textContent = t.total_quantity ?? t.quantity;
             document.getElementById('vtm-technician-label').textContent =
                 t.transaction_type === 'delivery' ? 'Received By' :
-                t.transaction_type === 'transfer' ? 'Transferred By' : 'Technician';
+                t.transaction_type === 'transfer' ? 'Transferred By' :
+                t.transaction_type === 'item_request' ? 'Requested By' :
+                t.transaction_type === 'borrow' ? 'Borrowed By' :
+                t.transaction_type === 'return' ? 'Returned By' :
+                t.transaction_type === 'stock_out' ? 'Stocked Out By' :
+                t.transaction_type === 'stock_in' ? 'Stocked In By' : 'User';
             document.getElementById('vtm-technician').textContent = t.source === 'auto' ? 'System' : (t.technician_name || '—');
             document.getElementById('vtm-date').textContent = formatDateTimeTM(t.created_at);
             document.getElementById('vtm-notes').textContent = t.notes || 'No notes for this transaction.';

@@ -41,7 +41,11 @@ class TransferController
             $movedBy = trim($_POST['technician_name'] ?? '');
             $fromLocationId = (int) ($_POST['from_location_id'] ?? 0);
             $toLocationId = (int) ($_POST['to_location_id'] ?? 0);
-            $date = trim($_POST['transaction_date'] ?? '') ?: date('Y-m-d');
+            // Transfer Date is a read-only field in the form (always
+            // today) - always today here too, regardless of what's
+            // POSTed, rather than trusting a value the UI never lets
+            // anyone actually change.
+            $date = date('Y-m-d');
             $notes = trim($_POST['notes'] ?? '');
             $quantities = $_POST['quantities'] ?? [];
 

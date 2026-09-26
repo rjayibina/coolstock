@@ -8,11 +8,13 @@ require_once __DIR__ . '/../Models/Location.php';
 /**
  * ItemRequestController.php
  * Item Request and Return Monitoring Module. A Technician submits a
- * request (item + quantity, no location - that's decided at approval
- * time); Warehouse Staff/Admin approve it (creating a Borrow row and
- * deducting stock at the location they pick), decline it, or log a
- * return against an active Borrow (creating a Return row and restocking
- * whatever wasn't damaged).
+ * request (item + quantity, plus a preferred release location shown to
+ * staff on the Pending tab - informational only, see create()); Warehouse
+ * Staff/Admin approve it (creating a Borrow row and deducting stock at
+ * the location they pick, which the Approve modal decides independently
+ * of the requester's preference), decline it, or log a return against an
+ * active Borrow (creating a Return row and restocking whatever wasn't
+ * damaged).
  *
  * Reuses the transactions table and its existing item_request/borrow/
  * return types (Models/Transaction.php) rather than a separate table -
@@ -66,7 +68,21 @@ class ItemRequestController
             $declined = $this->transaction->readRequestList('item_request', ['declined'], $technicianFilter, 'date_desc');
             $returned = $this->transaction->readRequestList('borrow', ['completed'], $technicianFilter, 'date_desc');
             $requests = array_merge($declined, $returned);
-            usort($requests, fn($a, $b) => $b['transaction_id'] <=> $a['transaction_id']);
+            // Sort by when each row actually CLOSED OUT, not by its own
+            // transaction_id: a declined item_request closes at the id it
+            // was created with, but a fully-returned Borrow closes at its
+            // LAST RETURN's id (last_return_id, see Transaction::
+            // readRequestList()) - which is always newer than the Borrow's
+            // own id, assigned back when it was first approved. Without
+            // this, an old Borrow returned just now would sort by its
+            // approval-time id and land far below (or off page 1 of)
+            // recently-declined requests, even though it just closed today.
+            $closingId = function (array $row): int {
+                return $row['transaction_type'] === 'borrow' && !empty($row['last_return_id'])
+                    ? (int) $row['last_return_id']
+                    : (int) $row['transaction_id'];
+            };
+            usort($requests, fn($a, $b) => $closingId($b) <=> $closingId($a));
 
             $totalCount = count($requests);
             $totalPages = max(1, (int) ceil($totalCount / self::PER_PAGE));
@@ -100,16 +116,38 @@ class ItemRequestController
             'totalPages' => $totalPages,
         ];
 
+        // AJAX pagination: the fragment only needs $requests/$pagination/
+        // $tab/$isStaff/$isTechnician/$viewer (all set above) - none of the
+        // summary tiles or Add Request modal data below, so skip straight
+        // to rendering. See Views/requests/index.php's $ajaxFragment guard.
+        if (is_ajax_request()) {
+            $ajaxFragment = true;
+            ob_start();
+            require __DIR__ . '/../Views/requests/index.php';
+            $html = ob_get_clean();
+            header('Content-Type: application/json');
+            echo json_encode(['html' => $html]);
+            return;
+        }
+
         // At-a-glance figures for the summary strip - same scoping as the
         // rows below, so a Technician's tiles count only their own.
         $summary = [
-            'pending' => $this->transaction->countRequestList('item_request', ['pending'], $technicianFilter),
+            // Grouped - matches $totalCount above (the actual row count on
+            // this page's Pending tab), not the ungrouped per-line count.
+            'pending' => $this->transaction->countRequestListGrouped('item_request', ['pending'], $technicianFilter),
             'active' => $this->transaction->countRequestList('borrow', ['active'], $technicianFilter),
             'outstandingUnits' => $this->transaction->outstandingBorrowedUnits($technicianFilter),
         ];
 
         $items = $this->item->readAll();
         $locations = $this->location->readAll();
+        // Per-location stock for the New Item Request modal's location
+        // toggle - so a Technician can pick Main Store/Warehouse and see
+        // only what's actually there (with quantity), rather than each
+        // item's total across every location. See requestCatalog in
+        // Views/requests/index.php.
+        $stockBreakdown = $this->itemStock->breakdownForItems(array_map(fn($i) => (int) $i['item_id'], $items));
 
         require __DIR__ . '/../Views/requests/index.php';
     }
@@ -128,6 +166,18 @@ class ItemRequestController
         $notes = trim($_POST['notes'] ?? '');
         $date = date('Y-m-d');
         $quantities = $_POST['quantities'] ?? [];
+
+        // The Location toggle in the New Item Request modal (Main Store /
+        // Warehouse) is stored as the requester's preferred release
+        // location, shown to Warehouse Staff on the Pending tab so they
+        // know where the requester expects to collect from. It's
+        // informational only - the Approve modal's own "Release From"
+        // still decides which location actually gets debited, and can
+        // differ if stock at the preferred one has changed since.
+        $requestedLocationId = (int) ($_POST['location_id'] ?? 0);
+        if ($requestedLocationId > 0 && !$this->location->readOne($requestedLocationId)) {
+            $requestedLocationId = 0;
+        }
 
         $lines = [];
         foreach ($quantities as $itemId => $qty) {
@@ -194,7 +244,7 @@ class ItemRequestController
         foreach ($lines as $itemId => $qty) {
             $this->transaction->transaction_id = null;
             $this->transaction->item_id = $itemId;
-            $this->transaction->location_id = null;
+            $this->transaction->location_id = $requestedLocationId > 0 ? $requestedLocationId : null;
             $this->transaction->to_location_id = null;
             $this->transaction->transaction_type = 'item_request';
             $this->transaction->reference_number = $referenceNumber;
@@ -270,21 +320,20 @@ class ItemRequestController
     /** Warehouse Staff/Admin approves one or more pending Item Requests
      *  at once - a single consolidated row's own Approve button (whole
      *  batch), or several rows picked via the Bulk Approve toolbar.
-     *  Picks ONE fulfilling location for everything being approved,
-     *  checks stock covers the COMBINED demand per product (so two
-     *  lines requesting the same item are checked against their total,
-     *  not validated independently), then creates every Borrow row and
-     *  deducts stock atomically - one short line aborts the whole
-     *  approval, nothing is partially released. */
+     *  Releases each request from the location the requester already
+     *  chose in the New Item Request modal (its own `location_id`) -
+     *  there's no location picker in the Approve modal any more, since
+     *  the technician now picks the location up front and only sees
+     *  products actually in stock there. A batch can carry several
+     *  different requested locations, so stock is checked per
+     *  item+location combination (two lines for the same item at the
+     *  same location are checked against their combined demand; at
+     *  different locations, independently), then every Borrow row is
+     *  created and stock deducted atomically - one short line aborts
+     *  the whole approval, nothing is partially released. */
     public function approve(): void
     {
         $this->requireStaff();
-
-        $locationId = (int) ($_POST['location_id'] ?? 0);
-        if ($locationId <= 0) {
-            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("Please select a location to release from."));
-            exit;
-        }
 
         $requests = $this->expandPendingRequestIds($this->submittedRequestIds());
         if (empty($requests)) {
@@ -292,22 +341,39 @@ class ItemRequestController
             exit;
         }
 
-        $neededByItem = [];
+        // A request created before the Location field existed on the New
+        // Item Request modal (or otherwise missing one) has nothing to
+        // release from now that Approve doesn't ask - block it with a
+        // clear message rather than silently picking a location for it.
+        $missingLocation = array_values(array_unique(array_map(
+            fn($r) => $r['model'] ?? "item #{$r['item_id']}",
+            array_filter($requests, fn($r) => (int) ($r['location_id'] ?? 0) <= 0)
+        )));
+        if (!empty($missingLocation)) {
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode(
+                "These requests have no release location and can't be approved this way - ask the requester to resubmit: " . implode(', ', $missingLocation)
+            ));
+            exit;
+        }
+
+        $neededByItemLocation = [];
         foreach ($requests as $request) {
-            $itemId = (int) $request['item_id'];
-            $neededByItem[$itemId] = ($neededByItem[$itemId] ?? 0) + (int) $request['quantity'];
+            $key = (int) $request['item_id'] . ':' . (int) $request['location_id'];
+            $neededByItemLocation[$key] = ($neededByItemLocation[$key] ?? 0) + (int) $request['quantity'];
         }
         $shortfalls = [];
-        foreach ($neededByItem as $itemId => $needed) {
+        foreach ($neededByItemLocation as $key => $needed) {
+            [$itemId, $locationId] = array_map('intval', explode(':', $key));
             $available = $this->itemStock->getQuantity($itemId, $locationId);
             if ($available < $needed) {
                 $name = $this->item->readOne($itemId)['model'] ?? "item #{$itemId}";
-                $shortfalls[] = "{$name} (need {$needed}, only {$available} available)";
+                $locationName = $this->location->readOne($locationId)['location_name'] ?? "location #{$locationId}";
+                $shortfalls[] = "{$name} at {$locationName} (need {$needed}, only {$available} available)";
             }
         }
         if (!empty($shortfalls)) {
             header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode(
-                "Not enough stock at that location: " . implode('; ', $shortfalls)
+                "Not enough stock at the requested location: " . implode('; ', $shortfalls)
             ));
             exit;
         }
@@ -321,7 +387,7 @@ class ItemRequestController
 
                 $this->transaction->transaction_id = null;
                 $this->transaction->item_id = (int) $request['item_id'];
-                $this->transaction->location_id = $locationId;
+                $this->transaction->location_id = (int) $request['location_id'];
                 $this->transaction->to_location_id = null;
                 $this->transaction->transaction_type = 'borrow';
                 $this->transaction->reference_number = $request['reference_number'];
@@ -339,7 +405,7 @@ class ItemRequestController
                 $this->transaction->damaged_quantity = null;
                 $this->transaction->create();
 
-                $this->itemStock->adjust((int) $request['item_id'], $locationId, -(int) $request['quantity']);
+                $this->itemStock->adjust((int) $request['item_id'], (int) $request['location_id'], -(int) $request['quantity']);
                 $this->transaction->updateStatus($id, 'completed');
             }
             $this->transaction->commit();
@@ -355,10 +421,18 @@ class ItemRequestController
 
     /** Warehouse Staff/Admin declines a pending Item Request - no stock
      *  effect, terminal. Declining a consolidated row declines every
-     *  line in that batch together, same as Approve. */
+     *  line in that batch together, same as Approve. A reason is
+     *  mandatory - see Views/requests/index.php's Decline modal, which
+     *  keeps its own submit button disabled until one is entered. */
     public function decline(): void
     {
         $this->requireStaff();
+
+        $reason = trim($_POST['decline_reason'] ?? '');
+        if ($reason === '') {
+            header("Location: index.php?module=requests&action=index&status=error&message=" . urlencode("A reason is required to decline a request."));
+            exit;
+        }
 
         $requests = $this->expandPendingRequestIds($this->submittedRequestIds());
         if (empty($requests)) {
@@ -367,7 +441,7 @@ class ItemRequestController
         }
 
         foreach ($requests as $request) {
-            $this->transaction->updateStatus((int) $request['transaction_id'], 'declined');
+            $this->transaction->declineWithReason((int) $request['transaction_id'], $reason);
         }
 
         header("Location: index.php?module=requests&action=index&status=declined&count=" . count($requests));

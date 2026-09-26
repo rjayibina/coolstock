@@ -73,6 +73,23 @@ class InventoryItemController
             'totalPages' => $totalPages,
         ];
 
+        // AJAX pagination: render the same view into a buffer (it truncates
+        // itself right after the list container - see the $ajaxFragment
+        // check near the end of Views/products/index.php) and return it as
+        // JSON instead of a full page, so the client can swap just the list.
+        if (is_ajax_request()) {
+            $ajaxFragment = true;
+            ob_start();
+            require __DIR__ . '/../Views/products/index.php';
+            $html = ob_get_clean();
+            header('Content-Type: application/json');
+            echo json_encode([
+                'html' => $html,
+                'data' => array_column($items, null, 'item_id'),
+            ]);
+            return;
+        }
+
         require __DIR__ . '/../Views/products/index.php';
     }
 
@@ -414,11 +431,14 @@ class InventoryItemController
         'power_input' => 50,
     ];
 
-    /** Shared validation for create + edit */
-    /** $isCreate adds two checks that only apply when adding a brand-new
-     *  product, never when editing an existing one: Item Type and Location
-     *  are required on create (Location seeds the product's first
-     *  item_stock row - see create() - and isn't a field edit() even has). */
+    /** Shared validation for create + edit. Model/Category/Item Type/
+     *  Brand are required on both create and edit (see Views/products/
+     *  index.php's Add/Edit modals - both mark these with a required
+     *  asterisk). $isCreate adds two checks that only ever apply when
+     *  adding a brand-new product: Location and Quantity - Location
+     *  seeds the product's first item_stock row (see create()) and isn't
+     *  a field edit() even has; existing stock/location is managed
+     *  separately via Stock In/Out once a product exists. */
     private function validate(array $input, bool $isCreate = false): ?string
     {
         if (trim($input['model'] ?? '') === '') {
@@ -430,10 +450,10 @@ class InventoryItemController
         if (empty($input['category_id'])) {
             return "Category is required.";
         }
-        if ($isCreate && empty($input['item_type_id'])) {
+        if (empty($input['item_type_id'])) {
             return "Item Type is required.";
         }
-        if ($isCreate && empty($input['brand_id'])) {
+        if (empty($input['brand_id'])) {
             return "Brand is required.";
         }
         if ($isCreate && empty($input['location_id'])) {

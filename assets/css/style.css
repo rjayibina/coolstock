@@ -298,6 +298,15 @@ body {
 
 .search-box svg { flex-shrink: 0; opacity: 0.6; }
 
+/* Used on the New Item Request modal's product search only - strips the
+   left/right padding and border, keeping the icon+input layout intact.
+   The plain .search-box look stays as-is everywhere else. */
+.search-box.search-box--flush {
+    border: none;
+    padding-left: 0;
+    padding-right: 0;
+}
+
 .search-results-dropdown {
     position: absolute;
     top: calc(100% + 4px);
@@ -564,6 +573,12 @@ tbody tr:hover { background: #FAFAFD; }
 }
 
 .cell-muted { color: var(--text-muted); }
+
+/* Keeps a date/time cell on one line - used where a neighboring flexible
+   column (e.g. Notes) would otherwise squeeze the table and wrap a date
+   onto two lines (see Views/requests/index.php's Date/Released On/
+   Closed On columns). */
+.cell-nowrap { white-space: nowrap; }
 .cell-id { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .actions { display: flex; gap: 6px; }
@@ -618,10 +633,12 @@ tbody tr:hover { background: #FAFAFD; }
 .toast-stack {
     position: fixed;
     top: 20px;
-    right: 20px;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 2000;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 10px;
     width: calc(100% - 40px);
     max-width: 380px;
@@ -634,6 +651,7 @@ tbody tr:hover { background: #FAFAFD; }
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 0;
+    width: 100%;
     box-shadow: var(--shadow-lg);
     background: #fff;
     pointer-events: auto;
@@ -645,12 +663,12 @@ tbody tr:hover { background: #FAFAFD; }
 }
 
 @keyframes toast-in {
-    from { opacity: 0; transform: translateX(24px); }
+    from { opacity: 0; transform: translateY(-16px); }
     to { opacity: 1; transform: none; }
 }
 
 @keyframes toast-out {
-    to { opacity: 0; transform: translateX(24px); }
+    to { opacity: 0; transform: translateY(-16px); }
 }
 
 .toast-close {
@@ -729,6 +747,27 @@ form label {
     font-weight: 600;
     margin-bottom: 6px;
     color: var(--text-dark);
+}
+
+.required-asterisk {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+.toggle-btn-group .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Active state for a toggle-btn-group choice (e.g. the New Item Request
+   modal's Main Store/Warehouse location buttons) - a dedicated class
+   rather than reusing .btn-primary, since .btn-secondary is declared
+   later in this file and would otherwise win the cascade over a
+   .btn-secondary.btn-primary element of equal specificity. */
+.toggle-btn-group .btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
 }
 
 form input[type="text"],
@@ -918,6 +957,10 @@ a.stat-card-link:focus-visible {
 .badge-stock_out { background: #EEF0FE; color: var(--accent); }
 .badge-delivery { background: var(--success-bg); color: var(--success); }
 .badge-transfer { background: #FCE7F3; color: #BE185D; }
+/* Status badges (not movement-type badges above) - "Out Now" on the Low
+   Stock/Predictive Alerts report reused .badge-stock_out (accent blue),
+   which reads as a neutral movement-type tag rather than a stock alert. */
+.badge-danger { background: var(--danger-bg); color: var(--danger); }
 
 /* ---------- Dashboard bar charts ---------- */
 .chart-grid {
@@ -1607,10 +1650,13 @@ body.rail-open { overflow: hidden; }
 
     /* Corner card is too narrow to read comfortably at this width -
        span the viewport with the same gutter as everything else instead.
-       top stays at the 900px breakpoint's 68px (topbar clearance). */
+       top stays at the 900px breakpoint's 68px (topbar clearance).
+       transform is reset since left/right now do the positioning, not
+       the base rule's translateX(-50%) centering. */
     .toast-stack {
         right: 12px;
         left: 12px;
+        transform: none;
         width: auto;
         max-width: none;
     }
@@ -1854,12 +1900,39 @@ body.rail-open { overflow: hidden; }
 }
 
 /* ---------- Print ---------- */
+.print-only { display: none; }
+
 @media print {
     .rail, .topbar, .rail-scrim, .header-actions,
-    .pagination-bar, .bulk-bar, .filter-panel, .sort-bar, .filter-chips { display: none !important; }
+    .pagination-bar, .bulk-bar, .filter-panel, .sort-bar, .filter-chips,
+    .no-print { display: none !important; }
+
+    .print-only { display: block; }
 
     .main { padding: 0; }
     .table-card { border: none; box-shadow: none; }
     body { background: #fff; }
     thead th { background: #fff; }
+
+    /* Printing a report from inside the Recently Generated modal (see
+       reportPrint() in Views/reports/index.php) - the modal is normally
+       shown/hidden by its own .open class, which a print stylesheet can't
+       rely on the same way, so this body class takes over: hide
+       everything else on the page, then lay the modal out as plain
+       in-flow content instead of a fixed-position overlay. */
+    body.printing-report-modal > .rail,
+    body.printing-report-modal > .topbar,
+    body.printing-report-modal .main > *:not(#reportModal) { display: none !important; }
+    body.printing-report-modal .modal-overlay#reportModal {
+        position: static !important;
+        display: block !important;
+        background: none !important;
+        padding: 0 !important;
+    }
+    body.printing-report-modal .modal-overlay#reportModal .modal-dialog {
+        box-shadow: none !important;
+        max-height: none !important;
+        max-width: none !important;
+        overflow: visible !important;
+    }
 }

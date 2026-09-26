@@ -68,6 +68,49 @@
             color: var(--text-muted);
             margin-bottom: 22px;
         }
+        /* Password field + show/hide toggle (see togglePasswordVisibility()
+           below). Only this page's password input gets the extra right-side
+           padding/positioning - the shared form input[type="password"] rule
+           in style.css is left untouched so every other password field in
+           the app (e.g. Add/Edit User) is unaffected. */
+        .password-field {
+            position: relative;
+        }
+        .password-field input[type="password"],
+        .password-field input[type="text"] {
+            padding-right: 42px;
+        }
+        .password-toggle {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 18px;
+            width: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+        .password-toggle:hover {
+            color: var(--text-dark);
+        }
+        .password-toggle svg {
+            width: 18px;
+            height: 18px;
+        }
+        .password-toggle .icon-eye-off {
+            display: none;
+        }
+        .password-toggle.is-visible .icon-eye {
+            display: none;
+        }
+        .password-toggle.is-visible .icon-eye-off {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -91,15 +134,32 @@
             <?php endif; ?>
 
             <form method="POST" action="index.php?module=auth&action=login">
-                <label for="email">Email</label>
+                <label for="email">Email <span class="required-asterisk">*</span></label>
                 <input type="email" id="email" name="email" required autofocus>
 
-                <label for="password">Password</label>
-                <input type="password" id="password" name="password" required>
+                <label for="password">Password <span class="required-asterisk">*</span></label>
+                <div class="password-field">
+                    <input type="password" id="password" name="password" required>
+                    <button type="button" class="password-toggle" onclick="togglePasswordVisibility()" aria-label="Show password" aria-pressed="false">
+                        <svg class="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="icon-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.6 21.6 0 0 1 5.06-6.06M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-2.61 3.81M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
 
                 <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Sign In</button>
             </form>
         </div>
     </div>
+    <script>
+        function togglePasswordVisibility() {
+            var input = document.getElementById('password');
+            var btn = document.querySelector('.password-toggle');
+            var showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+            btn.setAttribute('aria-pressed', showing ? 'false' : 'true');
+            btn.classList.toggle('is-visible', !showing);
+        }
+    </script>
 </body>
 </html>

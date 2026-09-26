@@ -3,8 +3,12 @@ require_once __DIR__ . '/../Config/Database.php';
 
 /**
  * Category.php (Model)
- * Represents a single row of the item_categories table: just an ID and
- * a Name, matching the ERD's tblCategories exactly.
+ * Represents a single row of the item_categories table: an ID, a Name,
+ * and an optional item_type_id (see database/migration_add_item_type_
+ * to_categories.sql) - when set, this category locks the Add/Edit
+ * Product form's Item Type field to that value (enforced client-side in
+ * Views/products/index.php's updateCategoryDependentFields(); NULL means
+ * the category doesn't auto-lock anything.
  */
 class Category
 {
@@ -13,6 +17,7 @@ class Category
 
     public ?int $category_id = null;
     public ?string $category_name = null;
+    public ?int $item_type_id = null;
 
     public function __construct()
     {
@@ -22,9 +27,10 @@ class Category
     /** CREATE - insert a new category */
     public function create(): bool
     {
-        $query = "INSERT INTO {$this->table} (category_name) VALUES (:category_name)";
+        $query = "INSERT INTO {$this->table} (category_name, item_type_id) VALUES (:category_name, :item_type_id)";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':category_name', $this->category_name);
+        $stmt->bindValue(':item_type_id', $this->item_type_id, $this->item_type_id === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         return $stmt->execute();
     }
 
@@ -49,9 +55,13 @@ class Category
     /** $sort picks an ORDER BY from self::SORT_OPTIONS (defaults to newest first) */
     public function readAllWithCounts(?string $sort = null, ?int $limit = null, ?int $offset = null): array
     {
-        $query = "SELECT c.*, COUNT(i.item_id) AS product_count
+        // Joined to item_types for locked_type_name - the Categories list
+        // (Views/categories/index.php) shows which Item Type each category
+        // locks to, if any, rather than just its raw item_type_id.
+        $query = "SELECT c.*, COUNT(i.item_id) AS product_count, t.type_name AS locked_type_name
                   FROM {$this->table} c
                   LEFT JOIN inventory_items i ON i.category_id = c.category_id
+                  LEFT JOIN item_types t ON t.item_type_id = c.item_type_id
                   GROUP BY c.category_id";
 
         $orderBy = self::SORT_OPTIONS[$sort] ?? self::SORT_OPTIONS['newest'];
@@ -96,9 +106,10 @@ class Category
     /** UPDATE - edit an existing category */
     public function update(): bool
     {
-        $query = "UPDATE {$this->table} SET category_name = :category_name WHERE category_id = :category_id";
+        $query = "UPDATE {$this->table} SET category_name = :category_name, item_type_id = :item_type_id WHERE category_id = :category_id";
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':category_name', $this->category_name);
+        $stmt->bindValue(':item_type_id', $this->item_type_id, $this->item_type_id === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
         $stmt->bindParam(':category_id', $this->category_id, PDO::PARAM_INT);
         return $stmt->execute();
     }

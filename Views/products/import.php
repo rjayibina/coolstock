@@ -39,7 +39,7 @@ require __DIR__ . '/../partials/header.php';
         <?php else: ?>
             <div class="form-card">
                 <form method="POST" action="index.php?module=products&action=import" enctype="multipart/form-data">
-                    <label for="import_file">CSV or XLSX File</label>
+                    <label for="import_file">CSV or XLSX File <span class="required-asterisk">*</span></label>
                     <input type="file" id="import_file" name="import_file" accept=".csv,.xlsx" required style="margin-bottom:18px;">
 
                     <div class="alert alert-warning" style="margin-bottom:18px;">

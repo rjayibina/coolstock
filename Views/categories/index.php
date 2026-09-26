@@ -1,8 +1,11 @@
 <?php
 /**
  * Views/categories/index.php
- * Expects: $categories (array of rows from item_categories, each with product_count),
- *          $pagination (array: page, perPage, totalCount, totalPages)
+ * Expects: $categories (array of rows from item_categories, each with
+ *          product_count and locked_type_name - see Category::
+ *          readAllWithCounts()), $itemTypes (array, for the "Locks Item
+ *          Type" select), $pagination (array: page, perPage, totalCount,
+ *          totalPages)
  */
 $status = $_GET['status'] ?? null;
 $bulkCount = (int) ($_GET['count'] ?? 0);
@@ -14,12 +17,19 @@ $activeSubNav = 'categories';
 $count = $pagination['totalCount'];
 require __DIR__ . '/../partials/header.php';
 
-// Builds a pagination link that keeps the current sort
+// Builds a pagination link that keeps the current sort.
+//
+// Reads $_GET directly rather than via `global` on $currentSort above -
+// this file is require()'d from inside CategoryController::index(), so
+// its "top-level" code runs in THAT METHOD's local scope, not PHP's
+// real global scope, and `global $x` only ever binds to $GLOBALS['x'].
+// That silently emitted an empty sort on every pagination link. $_GET
+// is a true superglobal, reachable from any scope, so it doesn't have
+// this problem.
 function categoryPageUrl(int $page): string
 {
-    global $currentSort;
     return "index.php?module=categories&action=index"
-        . "&sort=" . urlencode($currentSort)
+        . "&sort=" . urlencode($_GET['sort'] ?? 'newest')
         . "&page=" . $page;
 }
 ?>
@@ -79,13 +89,14 @@ function categoryPageUrl(int $page): string
                             <th style="width:36px;"><input type="checkbox" id="selectAllCategories" class="row-check" onclick="toggleAllCategories(this)"></th>
                             <th style="width:60px;">ID</th>
                             <th>Category</th>
+                            <th>Locks Item Type</th>
                             <th style="width:190px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($categories)): ?>
                             <tr class="empty-row">
-                                <td colspan="4">No categories match these filters.</td>
+                                <td colspan="5">No categories match these filters.</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($categories as $cat): ?>
@@ -93,6 +104,7 @@ function categoryPageUrl(int $page): string
                                     <td><input type="checkbox" name="selected_ids[]" value="<?= $cat['category_id'] ?>" class="row-check category-check" onchange="updateBulkBarCategories()"></td>
                                     <td class="cell-id"><?= (int) $cat['category_id'] ?></td>
                                     <td><strong><?= htmlspecialchars($cat['category_name']) ?></strong></td>
+                                    <td class="cell-muted"><?= htmlspecialchars($cat['locked_type_name'] ?? '—') ?></td>
                                     <td class="actions">
                                         <button type="button" class="btn btn-edit btn-sm" onclick="openEditCategoryModal(<?= $cat['category_id'] ?>)">Edit</button>
                                         <button type="button" class="btn btn-danger btn-sm" onclick="openDeleteCategoryModal(<?= $cat['category_id'] ?>)">Delete</button>
@@ -134,9 +146,18 @@ function categoryPageUrl(int $page): string
                 </div>
                 <div class="modal-body">
                     <form method="POST" action="index.php?module=categories&action=create">
-                        <label for="ac_category_name">Category Name</label>
+                        <label for="ac_category_name">Category Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="ac_category_name" name="category_name" maxlength="100"
                                placeholder="e.g. Refrigeration Parts" required>
+
+                        <label for="ac_item_type_id" style="margin-top:14px;">Locks Item Type <span class="cell-muted">(optional)</span></label>
+                        <select id="ac_item_type_id" name="item_type_id">
+                            <option value="">No lock - leave Item Type open</option>
+                            <?php foreach ($itemTypes as $t): ?>
+                                <option value="<?= (int) $t['item_type_id'] ?>"><?= htmlspecialchars($t['type_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="cell-muted" style="margin-top:4px;">When set, products in this category always get this Item Type on the Add/Edit Product form.</p>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Category</button>
@@ -157,8 +178,17 @@ function categoryPageUrl(int $page): string
                     <form method="POST" id="editCategoryForm" action="index.php?module=categories&action=edit">
                         <input type="hidden" name="category_id" id="ec_category_id" value="">
 
-                        <label for="ec_category_name">Category Name</label>
+                        <label for="ec_category_name">Category Name <span class="required-asterisk">*</span></label>
                         <input type="text" id="ec_category_name" name="category_name" maxlength="100" required>
+
+                        <label for="ec_item_type_id" style="margin-top:14px;">Locks Item Type <span class="cell-muted">(optional)</span></label>
+                        <select id="ec_item_type_id" name="item_type_id">
+                            <option value="">No lock - leave Item Type open</option>
+                            <?php foreach ($itemTypes as $t): ?>
+                                <option value="<?= (int) $t['item_type_id'] ?>"><?= htmlspecialchars($t['type_name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="cell-muted" style="margin-top:4px;">When set, products in this category always get this Item Type on the Add/Edit Product form.</p>
 
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Update Category</button>
@@ -229,6 +259,7 @@ function categoryPageUrl(int $page): string
             document.getElementById('ec_category_id').value = id;
             document.getElementById('editCategoryForm').action = 'index.php?module=categories&action=edit&id=' + id;
             document.getElementById('ec_category_name').value = c.category_name || '';
+            document.getElementById('ec_item_type_id').value = c.item_type_id || '';
 
             document.getElementById('editCategoryModal').classList.add('open');
         }

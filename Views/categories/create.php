@@ -1,7 +1,8 @@
 <?php
 /**
  * Views/categories/create.php
- * Expects: $error (string|null)
+ * Expects: $error (string|null), $itemTypes (array, for the "Locks Item
+ * Type" select)
  */
 $pageTitle = 'Add Category';
 $activeSection = 'inventory';
@@ -25,10 +26,19 @@ require __DIR__ . '/../partials/header.php';
 
         <div class="form-card">
             <form method="POST" action="index.php?module=categories&action=create">
-                <label for="category_name">Category Name</label>
+                <label for="category_name">Category Name <span class="required-asterisk">*</span></label>
                 <input type="text" id="category_name" name="category_name" maxlength="100"
                        placeholder="e.g. Refrigeration Parts"
                        value="<?= htmlspecialchars($_POST['category_name'] ?? '') ?>" required>
+
+                <label for="item_type_id" style="margin-top:14px;">Locks Item Type <span class="cell-muted">(optional)</span></label>
+                <select id="item_type_id" name="item_type_id">
+                    <option value="">No lock - leave Item Type open</option>
+                    <?php foreach ($itemTypes as $t): ?>
+                        <option value="<?= (int) $t['item_type_id'] ?>" <?= (string) ($_POST['item_type_id'] ?? '') === (string) $t['item_type_id'] ? 'selected' : '' ?>><?= htmlspecialchars($t['type_name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <p class="cell-muted" style="margin-top:4px;">When set, products in this category always get this Item Type on the Add/Edit Product form - it can't be changed there.</p>
 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save Category</button>
